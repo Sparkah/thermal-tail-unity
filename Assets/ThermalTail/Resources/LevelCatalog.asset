@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d11fab3b776a84bccbb4a6e603820e44, type: 3}
+  m_Name: LevelCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.LevelCatalogAsset
+  Levels:
+  - SceneName: 01_Fernlight_Verge
+    DisplayName: Fernlight Verge
+  - SceneName: 02_Sunken_Solarium
+    DisplayName: Sunken Solarium
+  - SceneName: 03_Coldstone_Face
+    DisplayName: Coldstone Face
+  - SceneName: 04_Basalt_Locks
+    DisplayName: Basalt Locks
+  - SceneName: 05_Relay_Spire
+    DisplayName: Relay Spire
+  - SceneName: 06_Nightglass_Relay
+    DisplayName: Nightglass Relay
+  - SceneName: 07_Summit_Eye
+    DisplayName: Summit Eye

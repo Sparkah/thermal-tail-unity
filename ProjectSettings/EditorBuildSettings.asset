@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/01_Fernlight_Verge.unity
+    guid: 15eb31b9b4475475a9eed50cc732af90
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/02_Sunken_Solarium.unity
+    guid: 41539c6cf340b4c1884b1434b4574844
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/03_Coldstone_Face.unity
+    guid: 0254fe918dc4b414992757923bf25f71
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/04_Basalt_Locks.unity
+    guid: 4330095afc2ac4e128d4ff23f4d0dd24
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/05_Relay_Spire.unity
+    guid: 044296f643b124518bf5dd6d06b29919
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/06_Nightglass_Relay.unity
+    guid: bf061075890d640bf8d183712ddf4440
+  - enabled: 1
+    path: Assets/ThermalTail/Levels/07_Summit_Eye.unity
+    guid: e0e52d765c5824d2396f7ad4cda25d61
+  m_configObjects:
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  m_UseUCBPForAssetBundles: 0
