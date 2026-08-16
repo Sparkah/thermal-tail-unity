@@ -103,6 +103,13 @@ namespace ThermalTail
         public Transform PlayerView;
         public FollowCameraRig CameraRig;
 
+        [Header("3D")]
+        [Tooltip("Lay every level out as a floor plan on the XZ ground plane and play it top-down in 3D. " +
+                 "Off falls back to the original side-on 2D port.")]
+        public bool GroundPlay = true;
+        [Tooltip("Build a floor, lighting and fog at runtime so the greybox reads as a place.")]
+        public bool BuildWorldDressing = true;
+
         [Header("Debug")]
         public bool LogEvents;
         public string LastEvent = "";
@@ -117,6 +124,12 @@ namespace ThermalTail
 
         // ---- player ----
         public float px, py, pw = 72f, ph = 48f, pvx, pvy;
+        /// <summary>
+        /// Height off the floor in source pixels, and its velocity. Ground play only.
+        /// Side play keeps using py/pvy for the vertical axis exactly as the port did, so
+        /// this pair stays at zero there and no shared constant has to mean two things.
+        /// </summary>
+        public float PLift, PLiftVel;
         public int PFacing = 1;
         public float PAngle = -Mathf.PI * 0.5f;
         public bool PGrounded;
@@ -208,6 +221,47 @@ namespace ThermalTail
             }
         }
 
+        /// <summary>
+        /// Extrude the floor plan. The authored rects say where a thing is and how much
+        /// floor it takes; ViewDepth was only ever a presentation nicety in the flat build,
+        /// so on the ground plane it becomes the standing height and the greybox turns into
+        /// geometry you can walk between. Authored values are untouched.
+        /// </summary>
+        /// <summary>
+        /// True when the authored rects are a floor plan already. Climb levels were drawn
+        /// that way; side levels are elevations, and their ledges are decking in plan view
+        /// rather than walls. Everything that has to reconcile the two readings asks here.
+        /// </summary>
+        public bool PlanAuthored => Settings != null && Settings.IsClimb;
+
+        bool CoversLevel(Obj o) =>
+            Settings != null && o.w * o.h >= Settings.Width * Settings.Height * 0.8f;
+
+        void ApplyStandingHeights()
+        {
+            TTObject.SuppressAuthoring = true;
+            try
+            {
+                for (int i = 0; i < Objects.Count; i++)
+                {
+                    var o = Objects[i];
+                    if (o.comp == null || o.tf == null) continue;
+                    if (o.comp.IsMetadata) { o.tf.gameObject.SetActive(false); continue; }
+                    o.comp.ViewDepth = TTView.StandingHeight(o.type, PlanAuthored);
+                    o.tf.localScale = TTCoord.RectScale(o.w, o.h, o.comp.ViewDepth);
+                    o.tf.localPosition = TTCoord.RectCenter(o.x, o.y, o.w, o.h, o.comp.ViewDepth * 0.5f);
+                    o.tf.localRotation = Quaternion.identity;
+
+                    // A climate zone drawn across the whole level is just the level's base
+                    // ambient restated. Flat on the floor it would paint over every other
+                    // read in the scene, so it stays simulated and stops being drawn.
+                    if (o.rend != null && TTView.IsAirVolume(o.type))
+                        o.rend.enabled = !CoversLevel(o);
+                }
+            }
+            finally { TTObject.SuppressAuthoring = false; }
+        }
+
         public void LoadLevel()
         {
             if (Settings == null || Tuning == null)
@@ -217,9 +271,21 @@ namespace ThermalTail
                 return;
             }
 
-            ClimbMode = Settings.IsClimb;
+            TTCoord.Plane = GroundPlay ? ViewPlane.Ground3D : ViewPlane.Flat2D;
+
+            // Ground play runs every level through the climb rules: 8-way movement over a
+            // floor, per-axis AABB blocking, no gravity on the play plane. Those rules were
+            // already a top-down controller - the browser build just drew them on a wall -
+            // so promoting them is what turns the whole game 3D without retuning anything.
+            ClimbMode = GroundPlay || Settings.IsClimb;
+
             LevelTime = 0f;
             BaseAmbient = TTMath.Clamp(Settings.Ambient, 0f, 100f);
+            if (GroundPlay)
+            {
+                ApplyStandingHeights();
+                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings);
+            }
 
             TotalMoths = 0;
             for (int i = 0; i < Objects.Count; i++)
@@ -241,8 +307,19 @@ namespace ThermalTail
             px = sx; py = sy;
             pw = Tuning.PlayerWidth; ph = Tuning.PlayerHeight;
             pvx = pvy = 0f;
+            PLift = PLiftVel = 0f;
             PFacing = 1;
             PAngle = -Mathf.PI * 0.5f;
+            if (GroundPlay)
+            {
+                // Face the objective at spawn. These levels were authored as side-on runs,
+                // so their long axis is wherever the den is - assuming a fixed forward put
+                // the chase camera outside the arena looking at a wall on level 1.
+                float gdx = Settings.Goal.x - sx;
+                float gdy = Settings.Goal.y - sy;
+                if (Mathf.Abs(gdx) > 1f || Mathf.Abs(gdy) > 1f) PAngle = Mathf.Atan2(gdy, gdx);
+                PFacing = gdx >= 0f ? 1 : -1;
+            }
             PGrounded = false;
             PGroundIndex = -1;
             PCoyote = Tuning.CoyoteTime;
@@ -297,7 +374,7 @@ namespace ThermalTail
                 return;
             }
 
-            TTInput.Poll(ClimbMode);
+            TTInput.Poll(ClimbMode, GroundPlay);
 
             float elapsed = Mathf.Min(Tuning.MaxFrameElapsed, Mathf.Max(0f, Time.deltaTime));
             _accumulator += elapsed;
@@ -428,11 +505,16 @@ namespace ThermalTail
 
         List<Solid> BuildClimbSolids()
         {
+            // In a side-authored level the ledges lie flat as decking, so they are scenery,
+            // not geometry. A closed thermal gate is a barrier in either reading and always
+            // blocks - it is the one obstacle the hop is not allowed to beat.
+            bool ledgesBlock = !GroundPlay || PlanAuthored;
+
             var outList = new List<Solid>();
             for (int i = 0; i < Objects.Count; i++)
             {
                 var o = Objects[i];
-                if (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform)
+                if (ledgesBlock && (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform))
                     outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, LevelTime) });
                 else if (o.type == TTObjectType.ThermalGate && !GateOpen(o))
                     outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, LevelTime) });
@@ -598,7 +680,8 @@ namespace ThermalTail
             PFocus = TTMath.Clamp(PFocus, 0f, 100f);
 
             float pace = PaceScale();
-            if (ClimbMode) ClimbMove(dt, pace, env);
+            if (GroundPlay) GroundMove3D(dt, pace, env);
+            else if (ClimbMode) ClimbMove(dt, pace, env);
             else SideMove(dt, pace, env);
 
             PAmbient = AmbientAt(px, py);
@@ -815,6 +898,124 @@ namespace ThermalTail
             }
         }
 
+        /// <summary>
+        /// Ground play. Movement across the floor is climbMove unchanged - the same 8-way
+        /// acceleration, the same per-axis AABB blocking, the same heat and mask constants -
+        /// because that controller was already top-down. What is new is the third axis:
+        /// PLift carries the lizard off the floor so a hop can clear a low ledge, while a
+        /// thermal gate stands too tall to jump and still has to be opened by matching it.
+        /// </summary>
+        void GroundMove3D(float dt, float pace, Env env)
+        {
+            float yaw = CameraRig != null ? CameraRig.InputYaw : 0f;
+            float rawX = (TTInput.Right ? 1 : 0) - (TTInput.Left ? 1 : 0);
+            float rawY = (TTInput.Down ? 1 : 0) - (TTInput.Up ? 1 : 0);
+
+            // Camera-relative steering, so "forward" means forward on screen when the rig is
+            // allowed to swing round behind the lizard. Fixed-yaw rigs report 0 and this is
+            // the identity.
+            float cos = Mathf.Cos(yaw), sin = Mathf.Sin(yaw);
+            float dx = rawX * cos - rawY * sin;
+            float dy = rawX * sin + rawY * cos;
+
+            float maxSpeed = (PMatching ? Tuning.ClimbMaskedMaxSpeed : Tuning.ClimbMaxSpeed) * pace;
+            float accel = (PMatching ? Tuning.ClimbMaskedAccel : Tuning.ClimbAccel) * pace;
+
+            float mag = TTMath.Hypot(dx, dy);
+            if (mag > 0.0001f)
+            {
+                pvx = TTMath.MoveToward(pvx, dx / mag * maxSpeed, accel * dt);
+                pvy = TTMath.MoveToward(pvy, dy / mag * maxSpeed, accel * dt);
+                if (Mathf.Abs(dx) > 0.0001f) PFacing = dx > 0f ? 1 : -1;
+            }
+            else
+            {
+                pvx = TTMath.MoveToward(pvx, 0f, Tuning.ClimbFriction * dt);
+                pvy = TTMath.MoveToward(pvy, 0f, Tuning.ClimbFriction * dt);
+            }
+
+            pvx += env.wind * dt;
+            pvx = TTMath.Clamp(pvx, -Tuning.ClimbSpeedClamp, Tuning.ClimbSpeedClamp);
+            pvy = TTMath.Clamp(pvy, -Tuning.ClimbSpeedClamp, Tuning.ClimbSpeedClamp);
+
+            float sp = TTMath.Hypot(pvx, pvy);
+            PTemp = TTMath.Clamp(PTemp + sp / Tuning.ClimbHeatDivisor * Tuning.ClimbHeatScale * dt, 0f, 100f);
+
+            // ---- the hop ----
+            if (TTInput.JumpQueued)
+            {
+                PJumpBuffer = Tuning.JumpBufferTime;
+                TTInput.JumpQueued = false;
+            }
+            else PJumpBuffer = Mathf.Max(0f, PJumpBuffer - dt);
+
+            if (PGrounded) PCoyote = Tuning.CoyoteTime;
+            else PCoyote = Mathf.Max(0f, PCoyote - dt);
+
+            if (PJumpBuffer > 0f && PCoyote > 0f)
+            {
+                // JumpImpulse is authored negative for a canvas whose y grows down; PLift
+                // grows up, so the sign flips and every other jump constant still applies.
+                PLiftVel = -Tuning.JumpImpulse;
+                PJumpBuffer = 0f;
+                PCoyote = 0f;
+                PGrounded = false;
+                PTemp = TTMath.Clamp(PTemp + Tuning.JumpHeat, 0f, 100f);
+            }
+
+            PLiftVel = Mathf.Max(-Tuning.TerminalFall, PLiftVel - Tuning.Gravity * dt);
+            PLift += PLiftVel * dt;
+            if (PLift <= 0f)
+            {
+                PLift = 0f;
+                PLiftVel = 0f;
+                PGrounded = true;
+            }
+
+            // ---- floor collision, skipping anything the hop is currently above ----
+            float half = Tuning.ClimbHalfExtent;
+            float nx = px + pvx * dt;
+            if (!GroundBlocked(nx, py, half, PLift)) px = nx; else pvx = 0f;
+            float ny = py + pvy * dt;
+            if (!GroundBlocked(px, ny, half, PLift)) py = ny; else pvy = 0f;
+
+            px = TTMath.Clamp(px, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Width - Tuning.ClimbEdgePad));
+            py = TTMath.Clamp(py, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Height - Tuning.ClimbEdgePad));
+
+            if (sp > 10f) PAngle = TTMath.AngleToward(PAngle, Mathf.Atan2(pvy, pvx), Tuning.ClimbAngleEase * dt);
+
+            PGroundIndex = -1;
+
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o.type != TTObjectType.ThermalGate) continue;
+                GateStates[i] = GateOpen(o);
+            }
+        }
+
+        /// <summary>
+        /// Ground-play blocking. Same AABB sweep as ClimbBlocked, except a solid you are
+        /// currently hopping over stops counting. The clearance factor is deliberately under
+        /// 1 so clearing a ledge means arcing over it rather than grazing the exact top.
+        /// </summary>
+        bool GroundBlocked(float x, float y, float half, float lift)
+        {
+            var list = ClimbSolids();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var r = list[i].rect;
+                if (x + half <= r.x || x - half >= r.x + r.width ||
+                    y + half <= r.y || y - half >= r.y + r.height) continue;
+
+                // Every overlap gets tested, not just the first: hopping a low ledge must
+                // not smuggle you through a gate that happens to overlap the same square.
+                float topPixels = TTView.StandingHeight(list[i].type, PlanAuthored) * TTCoord.PixelsPerUnit;
+                if (lift < topPixels * 0.85f) return true;
+            }
+            return false;
+        }
+
         // ---------------------------------------------------------------- flow
 
         public void ShowToast(string text, float duration)
@@ -851,6 +1052,7 @@ namespace ThermalTail
             }
             px = CheckpointX; py = CheckpointY;
             pvx = pvy = 0f;
+            PLift = PLiftVel = 0f;
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
             PGroundIndex = -1;
@@ -898,6 +1100,7 @@ namespace ThermalTail
             Mode = GameMode.LevelComplete;
             TransitionTimer = Tuning.LevelCompleteTransition;
             pvx = pvy = 0f;
+            PLift = PLiftVel = 0f;
             PMatching = false;
             TTInput.Clear();
             ShowToast(Settings.LevelName + " COMPLETE - BONUS " + bonus, 2.5f);

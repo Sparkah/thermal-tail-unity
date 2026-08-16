@@ -46,13 +46,13 @@ namespace ThermalTail
             // Level bounds.
             Gizmos.color = new Color(0.4f, 0.6f, 0.8f, 0.5f);
             Gizmos.DrawWireCube(
-                TTCoord.RectCenter(0f, 0f, Width, Height),
-                TTCoord.RectScale(Width, Height, 0.05f));
+                TTCoord.FlatRectCenter(0f, 0f, Width, Height),
+                TTCoord.FlatRectScale(Width, Height, 0.05f));
 
             Gizmos.color = new Color(0.5f, 1f, 0.7f, 1f);
-            Gizmos.DrawWireSphere(TTCoord.Point(PlayerStart.x, PlayerStart.y), 0.4f);
+            Gizmos.DrawWireSphere(TTCoord.FlatPoint(PlayerStart.x, PlayerStart.y), 0.4f);
             Gizmos.color = new Color(1f, 0.85f, 0.4f, 1f);
-            Gizmos.DrawWireSphere(TTCoord.Point(Goal.x, Goal.y), 0.5f);
+            Gizmos.DrawWireSphere(TTCoord.FlatPoint(Goal.x, Goal.y), 0.5f);
         }
     }
 }

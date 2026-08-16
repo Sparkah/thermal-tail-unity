@@ -657,7 +657,21 @@ namespace ThermalTail
         public void SyncView()
         {
             if (PlayerView != null)
-                PlayerView.localPosition = TTCoord.Point(px, py, 0f);
+            {
+                bool ground = TTCoord.IsGround;
+                float lift = ground ? PLift / TTCoord.PixelsPerUnit + TTView.PlayerRideHeight : 0f;
+                PlayerView.localPosition = TTCoord.Point(px, py, lift);
+
+                // Point the lizard where it is actually going. PAngle already eases toward
+                // the movement direction, so the model turns with the same lag the camera does.
+                if (ground)
+                {
+                    var heading = TTCoord.Direction(Mathf.Cos(PAngle), Mathf.Sin(PAngle));
+                    heading.y = 0f;
+                    if (heading.sqrMagnitude > 1e-6f)
+                        PlayerView.localRotation = Quaternion.LookRotation(heading.normalized, Vector3.up);
+                }
+            }
 
             for (int i = 0; i < Objects.Count; i++)
             {
@@ -676,7 +690,12 @@ namespace ThermalTail
                     if (!taken)
                     {
                         float hover = Mathf.Sin(LevelTime * Tuning.MothHoverFrequency + i * Tuning.MothHoverPhasePerIndex) * Tuning.MothHoverAmplitude;
-                        o.tf.localPosition = TTCoord.RectCenter(o.x, o.y + hover, o.w, o.h, o.comp.ViewDepth * 0.5f);
+                        // A glowmoth bobbing sideways across the floor reads as a bug on its
+                        // back; on the ground plane the same wave has to lift it instead.
+                        o.tf.localPosition = TTCoord.IsGround
+                            ? TTCoord.RectCenter(o.x, o.y, o.w, o.h,
+                                TTView.MothFloatHeight + hover / TTCoord.PixelsPerUnit)
+                            : TTCoord.RectCenter(o.x, o.y + hover, o.w, o.h, o.comp.ViewDepth * 0.5f);
                     }
                 }
                 else if (o.type == TTObjectType.ThermalGate)
@@ -695,7 +714,18 @@ namespace ThermalTail
                     if (e.tf.gameObject.activeSelf) e.tf.gameObject.SetActive(false);
                     continue;
                 }
-                e.tf.localPosition = TTCoord.RectCenter(e.x - e.w * 0.5f, e.y - e.h * 0.5f, e.w, e.h, 0.3f);
+                e.tf.localPosition = TTCoord.RectCenter(e.x - e.w * 0.5f, e.y - e.h * 0.5f, e.w, e.h,
+                    TTCoord.IsGround ? TTView.GuardRideHeight : 0.3f);
+
+                if (TTCoord.IsGround)
+                {
+                    // Face the way it is patrolling, so the player can read a warden's
+                    // attention from behind without needing the gizmo cone.
+                    var look = TTCoord.Direction(e.vx, e.vy);
+                    look.y = 0f;
+                    if (look.sqrMagnitude > 1e-4f)
+                        e.tf.localRotation = Quaternion.LookRotation(look.normalized, Vector3.up);
+                }
             }
         }
     }

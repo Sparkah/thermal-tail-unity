@@ -90,7 +90,8 @@ namespace ThermalTail
                 Director.Grace > 0f ? "   GRACE " + Director.Grace.ToString("0.0") : ""), _small);
             r.y += 18f;
 
-            GUI.Label(r, Director.ClimbMode ? "CLIMB  WASD move, SPACE mask, SHIFT strike"
+            GUI.Label(r, Director.GroundPlay ? "WASD move, SPACE hop, E mask, SHIFT strike"
+                       : Director.ClimbMode ? "CLIMB  WASD move, SPACE mask, SHIFT strike"
                                             : "SIDE  A/D move, W jump, S mask, SHIFT strike", _small);
 
             if (Director.ToastTimer > 0f && !string.IsNullOrEmpty(Director.Toast))

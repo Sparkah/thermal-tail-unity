@@ -83,9 +83,17 @@ namespace ThermalTail
         /// <summary>Depth of the greybox proxy in Unity units. Presentation only.</summary>
         [HideInInspector] public float ViewDepth = 1f;
 
+        /// <summary>
+        /// Set while something places these transforms for presentation rather than
+        /// authoring - the runtime ground-plane layout, or an editor screenshot pass. The
+        /// transform is not the designer's intent in those moments, so it must not be read
+        /// back into the authored rect.
+        /// </summary>
+        public static bool SuppressAuthoring;
+
         void OnValidate()
         {
-            if (Application.isPlaying) return;
+            if (Application.isPlaying || SuppressAuthoring) return;
             SyncFromTransform();
         }
 
@@ -103,26 +111,26 @@ namespace ThermalTail
             var p = transform.localPosition;
             var s = transform.localScale;
 
-            var expectedPos = TTCoord.RectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
-            var expectedScale = TTCoord.RectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
+            var expectedPos = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
+            var expectedScale = TTCoord.FlatRectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
             const float eps = 1e-4f;
             if (Mathf.Abs(p.x - expectedPos.x) < eps && Mathf.Abs(p.y - expectedPos.y) < eps &&
                 Mathf.Abs(s.x - expectedScale.x) < eps && Mathf.Abs(s.y - expectedScale.y) < eps)
                 return;
 
-            float w = Mathf.Abs(s.x) * TTCoord.PixelsPerUnit;
-            float h = Mathf.Abs(s.y) * TTCoord.PixelsPerUnit;
+            float w = TTCoord.FlatPixelsW(s);
+            float h = TTCoord.FlatPixelsH(s);
             SourceW = w;
             SourceH = h;
-            SourceX = p.x * TTCoord.PixelsPerUnit - w * 0.5f;
-            SourceY = -p.y * TTCoord.PixelsPerUnit - h * 0.5f;
+            SourceX = TTCoord.FlatPixelsX(p) - w * 0.5f;
+            SourceY = TTCoord.FlatPixelsY(p) - h * 0.5f;
         }
 
         /// <summary>Place the greybox proxy from the authored source rect.</summary>
         public void SyncToTransform()
         {
-            transform.localPosition = TTCoord.RectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
-            transform.localScale = TTCoord.RectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
+            transform.localPosition = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
+            transform.localScale = TTCoord.FlatRectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
         }
 
         public bool IsMetadata =>
@@ -133,8 +141,8 @@ namespace ThermalTail
         {
             Gizmos.color = new Color(1f, 1f, 1f, 0.35f);
             Gizmos.DrawWireCube(
-                TTCoord.RectCenter(SourceX, SourceY, SourceW, SourceH),
-                TTCoord.RectScale(SourceW, SourceH, 0.1f));
+                TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH),
+                TTCoord.FlatRectScale(SourceW, SourceH, 0.1f));
         }
 
         void OnDrawGizmos()
@@ -160,9 +168,9 @@ namespace ThermalTail
             float height = Mathf.Max(100f, Mathf.Abs(SourceH));
             float dir = (float)(int)Facing;
             float apexY = SourceY + 25f;
-            Vector3 apex = TTCoord.Point(SourceX, apexY);
-            Vector3 far0 = TTCoord.Point(SourceX + dir * range, SourceY + height * 0.34f);
-            Vector3 far1 = TTCoord.Point(SourceX + dir * range, SourceY + height);
+            Vector3 apex = TTCoord.FlatPoint(SourceX, apexY);
+            Vector3 far0 = TTCoord.FlatPoint(SourceX + dir * range, SourceY + height * 0.34f);
+            Vector3 far1 = TTCoord.FlatPoint(SourceX + dir * range, SourceY + height);
             Gizmos.color = new Color(0.3f, 0.85f, 1f, 0.8f);
             Gizmos.DrawLine(apex, far0);
             Gizmos.DrawLine(apex, far1);
@@ -175,13 +183,13 @@ namespace ThermalTail
             Vector3 a, b;
             if (Patrol == PatrolAxis.Vertical)
             {
-                a = TTCoord.Point(SourceX, SourceY - span * 0.5f);
-                b = TTCoord.Point(SourceX, SourceY + span * 0.5f);
+                a = TTCoord.FlatPoint(SourceX, SourceY - span * 0.5f);
+                b = TTCoord.FlatPoint(SourceX, SourceY + span * 0.5f);
             }
             else
             {
-                a = TTCoord.Point(SourceX - span * 0.5f, SourceY);
-                b = TTCoord.Point(SourceX + span * 0.5f, SourceY);
+                a = TTCoord.FlatPoint(SourceX - span * 0.5f, SourceY);
+                b = TTCoord.FlatPoint(SourceX + span * 0.5f, SourceY);
             }
             Gizmos.color = new Color(1f, 0.55f, 0.35f, 0.9f);
             Gizmos.DrawLine(a, b);
@@ -192,7 +200,7 @@ namespace ThermalTail
         void DrawLedgeGizmo()
         {
             float amp = TTMath.Clamp(Mathf.Abs(Value), 0f, 600f);
-            Vector3 c = TTCoord.RectCenter(SourceX, SourceY, SourceW, SourceH);
+            Vector3 c = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH);
             Vector3 off = LedgeAxis == PatrolAxis.Vertical
                 ? new Vector3(0f, amp / TTCoord.PixelsPerUnit, 0f)
                 : new Vector3(amp / TTCoord.PixelsPerUnit, 0f, 0f);

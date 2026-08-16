@@ -29,8 +29,11 @@ namespace ThermalTail
         /// <summary>
         /// Key map from the shipping build's keyAction(): W/Space jump in side levels,
         /// W climbs and Space masks in climb levels, S masks in side levels.
+        ///
+        /// Ground play needs a fourth arrangement, because it is the only mode with both a
+        /// full 8-way stick and a jump: WASD steers, Space hops, E masks, Shift strikes.
         /// </summary>
-        public static void Poll(bool climbMode)
+        public static void Poll(bool climbMode, bool groundPlay = false)
         {
             if (Scripted) return;
 #if ENABLE_INPUT_SYSTEM
@@ -43,7 +46,14 @@ namespace ThermalTail
             bool wHeld = k.wKey.isPressed || k.upArrowKey.isPressed;
             bool sHeld = k.sKey.isPressed || k.downArrowKey.isPressed;
 
-            if (climbMode)
+            if (groundPlay)
+            {
+                Up = wHeld;
+                Down = sHeld;
+                Match = k.eKey.isPressed;
+                if (k.spaceKey.wasPressedThisFrame) JumpQueued = true;
+            }
+            else if (climbMode)
             {
                 Up = wHeld;
                 Down = sHeld;
