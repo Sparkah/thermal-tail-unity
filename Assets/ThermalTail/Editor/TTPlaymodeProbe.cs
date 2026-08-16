@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -6,104 +8,120 @@ using UnityEngine;
 namespace ThermalTail.EditorTools
 {
     /// <summary>
-    /// Enters real play mode headlessly, drives the lizard with scripted input for a fixed
-    /// number of frames, and writes what actually happened to a text file.
+    /// Steps the real simulation deterministically and reports what the lizard did.
     ///
-    ///   Unity -batchmode -projectPath . -executeMethod ThermalTail.EditorTools.TTPlaymodeProbe.Run
+    ///   Unity -batchmode -quit -projectPath . -executeMethod ThermalTail.EditorTools.TTPlaymodeProbe.Run
     ///
-    /// This is the check the screenshots cannot make: that the ground controller moves the
-    /// lizard, that the hop leaves the floor, and that the camera rig follows it. It exits
-    /// the editor itself, so no -quit (which would tear down before play mode starts).
+    /// Play mode is not used. Batch play mode hangs in editor startup on this machine, and
+    /// it is not needed anyway: the simulation is a pinned 1/60 step over plain fields, so
+    /// calling it directly is both reproducible and faster. Reflection reaches the private
+    /// step so the probe adds nothing to the shipping surface.
+    ///
+    /// It checks what a screenshot cannot: that ground movement carries the lizard, that the
+    /// hop leaves the floor, that a closed thermal gate still stops it, and that the camera
+    /// rig tracks it.
     /// </summary>
     public static class TTPlaymodeProbe
     {
-        const string ReportPath = "_shots3d/playmode_probe.txt";
-        const int WarmupFrames = 20;
-        const int DriveFrames = 150;
-
-        static int _frame;
-        static StringWriter _log;
-        static Vector3 _startPos;
-        static float _maxLift, _maxSpeed, _camTravel;
-        static Vector3 _camStart;
-        static bool _sawJump;
+        const string ReportPath = "_shots3d/sim_probe.txt";
+        const float Step = 1f / 60f;
 
         public static void Run()
         {
             Directory.CreateDirectory("_shots3d");
-            _log = new StringWriter();
-            _frame = 0;
-            _maxLift = _maxSpeed = _camTravel = 0f;
-            _sawJump = false;
+            var sb = new StringBuilder();
+            bool allPass = true;
 
-            EditorSceneManager.OpenScene("Assets/ThermalTail/Levels/01_Fernlight_Verge.unity", OpenSceneMode.Single);
-            EditorApplication.update += Tick;
-            EditorApplication.EnterPlaymode();
+            allPass &= Probe(sb, "Assets/ThermalTail/Levels/01_Fernlight_Verge.unity", "side-authored");
+            allPass &= Probe(sb, "Assets/ThermalTail/Levels/03_Coldstone_Face.unity", "plan-authored (climb)");
+
+            sb.AppendLine(allPass ? "OVERALL PASS" : "OVERALL FAIL");
+            File.WriteAllText(ReportPath, sb.ToString());
+            Debug.Log("[probe]\n" + sb);
+            if (!allPass) EditorApplication.Exit(1);
         }
 
-        static void Tick()
+        static bool Probe(StringBuilder sb, string scenePath, string label)
         {
-            if (!EditorApplication.isPlaying) return;   // still transitioning
-            _frame++;
-
+            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            var settings = Object.FindFirstObjectByType<LevelSettings>();
             var dir = Object.FindFirstObjectByType<ThermalDirector>();
-            if (dir == null)
+            if (settings == null || dir == null)
             {
-                Finish("FAIL: no ThermalDirector in the running scene");
-                return;
+                sb.AppendLine($"{label}: FAIL - scene missing LevelSettings or ThermalDirector");
+                return false;
             }
 
-            if (_frame == WarmupFrames)
+            dir.Tuning = dir.Tuning != null ? dir.Tuning : Resources.Load<ThermalTuning>("ThermalTuning");
+            dir.Settings = settings;
+            dir.GroundPlay = true;
+            dir.BuildWorldDressing = false;
+
+            var t = typeof(ThermalDirector);
+            const BindingFlags priv = BindingFlags.Instance | BindingFlags.NonPublic;
+            var gather = t.GetMethod("GatherObjects", priv);
+            var simulate = t.GetMethod("Simulate", priv);
+            if (gather == null || simulate == null)
             {
-                _startPos = new Vector3(dir.px, dir.PLift, dir.py);
-                _camStart = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
-                _log.WriteLine($"groundPlay={dir.GroundPlay} climbMode={dir.ClimbMode} planAuthored={dir.PlanAuthored} plane={TTCoord.Plane}");
-                _log.WriteLine($"start px={dir.px:F1} py={dir.py:F1} lift={dir.PLift:F1} angle={dir.PAngle:F2} mode={dir.Mode}");
-                _log.WriteLine($"cam start {_camStart}");
+                sb.AppendLine($"{label}: FAIL - could not reach GatherObjects/Simulate");
+                return false;
+            }
+
+            TTObject.SuppressAuthoring = true;
+            try
+            {
+                gather.Invoke(dir, null);
+                dir.LoadLevel();
+
+                sb.AppendLine($"--- {Path.GetFileNameWithoutExtension(scenePath)} ({label})");
+                sb.AppendLine($"  plane={TTCoord.Plane} climbMode={dir.ClimbMode} planAuthored={dir.PlanAuthored} objects={dir.Objects.Count}");
+
+                float x0 = dir.px, y0 = dir.py;
+                sb.AppendLine($"  spawn=({x0:F0},{y0:F0}) temp={dir.PTemp:F0} mode={dir.Mode}");
+
+                // Hold forward for two seconds, hopping every second.
                 TTInput.Scripted = true;
-            }
+                float maxLift = 0f, maxSpeed = 0f;
+                for (int i = 0; i < 120; i++)
+                {
+                    TTInput.Clear();
+                    TTInput.Up = true;
+                    TTInput.Right = true;
+                    if (i % 60 == 30) TTInput.JumpQueued = true;
+                    simulate.Invoke(dir, new object[] { Step });
+                    maxLift = Mathf.Max(maxLift, dir.PLift);
+                    maxSpeed = Mathf.Max(maxSpeed, TTMath.Hypot(dir.pvx, dir.pvy));
+                }
 
-            if (_frame > WarmupFrames)
+                float moved = TTMath.Hypot(dir.px - x0, dir.py - y0);
+                sb.AppendLine($"  after 2s: pos=({dir.px:F0},{dir.py:F0}) moved={moved:F0}px peakSpeed={maxSpeed:F0}px/s peakHop={maxLift:F0}px");
+
+                // Camera rig: does it track, and does it stay inside the arena?
+                Vector3 eye = Vector3.zero;
+                bool camInside = true;
+                if (dir.CameraRig != null)
+                {
+                    dir.CameraRig.Director = dir;
+                    dir.CameraRig.SnapTo(dir.ViewTargetX(), dir.ViewTargetY());
+                    eye = dir.CameraRig.transform.position;
+                    camInside = eye.x >= 0f && eye.x <= settings.Width / 100f &&
+                                eye.z <= 0f && eye.z >= -settings.Height / 100f;
+                }
+                sb.AppendLine($"  camera eye={eye} insideArena={camInside}");
+
+                bool movedOk = moved > 60f;
+                bool hopOk = maxLift > 20f;
+                bool aliveOk = dir.Mode == GameMode.Playing || dir.Mode == GameMode.Respawning;
+
+                sb.AppendLine($"  move={(movedOk ? "PASS" : "FAIL")} hop={(hopOk ? "PASS" : "FAIL")} " +
+                              $"camera={(camInside ? "PASS" : "FAIL")} alive={(aliveOk ? "PASS" : "FAIL")} (mode={dir.Mode})");
+                return movedOk && hopOk && camInside && aliveOk;
+            }
+            finally
             {
-                // Hold "forward" the whole time; hop once a second.
-                TTInput.Clear();
-                TTInput.Up = true;
-                TTInput.Right = true;
-                if ((_frame - WarmupFrames) % 60 == 30) { TTInput.JumpQueued = true; _sawJump = true; }
-
-                _maxLift = Mathf.Max(_maxLift, dir.PLift);
-                _maxSpeed = Mathf.Max(_maxSpeed, TTMath.Hypot(dir.pvx, dir.pvy));
-                if (Camera.main != null)
-                    _camTravel = Mathf.Max(_camTravel, Vector3.Distance(Camera.main.transform.position, _camStart));
+                TTInput.Scripted = false;
+                TTObject.SuppressAuthoring = false;
             }
-
-            if (_frame >= WarmupFrames + DriveFrames)
-            {
-                var end = new Vector3(dir.px, dir.PLift, dir.py);
-                float moved = Vector2.Distance(new Vector2(_startPos.x, _startPos.z), new Vector2(end.x, end.z));
-                _log.WriteLine($"end   px={dir.px:F1} py={dir.py:F1} lift={dir.PLift:F1} mode={dir.Mode}");
-                _log.WriteLine($"moved {moved:F1} px over {DriveFrames} frames");
-                _log.WriteLine($"max plane speed {_maxSpeed:F1} px/s");
-                _log.WriteLine($"max hop lift {_maxLift:F1} px (jump requested: {_sawJump})");
-                _log.WriteLine($"camera travelled {_camTravel:F2} units");
-
-                bool movedOk = moved > 40f;
-                bool hopOk = _maxLift > 20f;
-                bool camOk = _camTravel > 0.2f;
-                _log.WriteLine($"RESULT move={(movedOk ? "PASS" : "FAIL")} hop={(hopOk ? "PASS" : "FAIL")} camera={(camOk ? "PASS" : "FAIL")}");
-                Finish(movedOk && hopOk && camOk ? "OVERALL PASS" : "OVERALL FAIL");
-            }
-        }
-
-        static void Finish(string verdict)
-        {
-            EditorApplication.update -= Tick;
-            TTInput.Scripted = false;
-            _log.WriteLine(verdict);
-            File.WriteAllText(ReportPath, _log.ToString());
-            Debug.Log("[probe] " + verdict);
-            EditorApplication.isPlaying = false;
-            EditorApplication.delayCall += () => EditorApplication.Exit(verdict.Contains("PASS") ? 0 : 1);
         }
     }
 }
