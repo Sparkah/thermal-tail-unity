@@ -653,6 +653,17 @@ namespace ThermalTail
             return py - Tuning.CameraLiftSide;
         }
 
+        /// <summary>
+        /// Height of the deck under a point, in Unity units, or zero where the level has a
+        /// solid floor. Anything that stands in the world is placed on top of this, so
+        /// wardens and glowmoths sit on the decks rather than hovering at the void's level.
+        /// </summary>
+        float DeckLift(float x, float y)
+        {
+            float top = SurfaceTopAt(x, y);
+            return float.IsNegativeInfinity(top) ? 0f : top / TTCoord.PixelsPerUnit;
+        }
+
         /// <summary>Drive Unity transforms from the simulation. Presentation only.</summary>
         public void SyncView()
         {
@@ -660,6 +671,7 @@ namespace ThermalTail
             {
                 bool ground = TTCoord.IsGround;
                 float lift = ground ? PLift / TTCoord.PixelsPerUnit + TTView.PlayerRideHeight : 0f;
+
                 PlayerView.localPosition = TTCoord.Point(px, py, lift);
 
                 // Point the lizard where it is actually going. PAngle already eases toward
@@ -694,7 +706,8 @@ namespace ThermalTail
                         // back; on the ground plane the same wave has to lift it instead.
                         o.tf.localPosition = TTCoord.IsGround
                             ? TTCoord.RectCenter(o.x, o.y, o.w, o.h,
-                                TTView.MothFloatHeight + hover / TTCoord.PixelsPerUnit)
+                                DeckLift(o.x + o.w * 0.5f, o.y + o.h * 0.5f)
+                                + TTView.MothFloatHeight + hover / TTCoord.PixelsPerUnit)
                             : TTCoord.RectCenter(o.x, o.y + hover, o.w, o.h, o.comp.ViewDepth * 0.5f);
                     }
                 }
@@ -715,7 +728,7 @@ namespace ThermalTail
                     continue;
                 }
                 e.tf.localPosition = TTCoord.RectCenter(e.x - e.w * 0.5f, e.y - e.h * 0.5f, e.w, e.h,
-                    TTCoord.IsGround ? TTView.GuardRideHeight : 0.3f);
+                    TTCoord.IsGround ? DeckLift(e.x, e.y) + TTView.GuardRideHeight : 0.3f);
 
                 if (TTCoord.IsGround)
                 {

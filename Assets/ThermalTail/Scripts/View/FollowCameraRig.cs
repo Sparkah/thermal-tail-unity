@@ -42,6 +42,8 @@ namespace ThermalTail
         [Tooltip("How far above the lizard the camera aims, so it looks ahead rather than at its feet.")]
         public float ChaseLookAhead = 4.5f;
         public float ChaseFov = 55f;
+        [Tooltip("Floor on the camera height when it has to pull in close to a level edge.")]
+        public float MinChaseHeight = 1.9f;
         [Tooltip("How fast the rig swings round to a new heading, in ChaseTurning. Lower is lazier.")]
         public float TurnDamping = 3.2f;
 
@@ -131,19 +133,37 @@ namespace ThermalTail
         }
 
         /// <summary>
-        /// Hold the eye inside the arena. The lizard spawns hard against an edge on most
-        /// levels, so a rig that sits a flat 7.5 units behind it starts outside the boundary
-        /// wall looking at the back of it. Sliding the eye in keeps the floor on screen and
-        /// costs nothing once the lizard has moved off the edge.
+        /// How far back the rig can sit along -fwd from the lizard and still be inside the
+        /// arena. The lizard spawns hard against an edge on most levels, so the authored
+        /// distance would put the eye outside the boundary wall.
+        ///
+        /// This returns a shorter distance rather than a moved eye on purpose. Sliding the
+        /// eye sideways to get it inside was the earlier fix and it was wrong: the aim slid
+        /// with it, so at spawn the camera looked past the lizard and Tim could not see it.
+        /// Dolling straight in keeps the lizard dead centre, whatever the level geometry.
         /// </summary>
-        public static Vector3 KeepInside(Vector3 eye, LevelSettings settings, float margin = 1.2f)
+        public static float FittedDistance(Vector3 focus, Vector3 fwd, LevelSettings settings,
+                                           float wanted, float minimum = 2.2f, float margin = 1.2f)
         {
-            if (settings == null || !TTCoord.IsGround) return eye;
+            if (settings == null || !TTCoord.IsGround) return wanted;
+            // The apron is built ground too, so the eye may use it.
+            float a = TTView.ArenaApron;
             float w = settings.Width / TTCoord.PixelsPerUnit;
             float h = settings.Height / TTCoord.PixelsPerUnit;
-            eye.x = Mathf.Clamp(eye.x, margin, Mathf.Max(margin, w - margin));
-            eye.z = Mathf.Clamp(eye.z, -h + margin, Mathf.Min(-margin, 0f));
-            return eye;
+
+            float d = wanted;
+            d = Mathf.Min(d, AxisLimit(focus.x, -fwd.x, -a + margin, w + a - margin, wanted));
+            d = Mathf.Min(d, AxisLimit(focus.z, -fwd.z, -h - a + margin, a - margin, wanted));
+            return Mathf.Clamp(d, Mathf.Min(minimum, wanted), wanted);
+        }
+
+        /// <summary>Largest travel along one axis before `from + step * d` leaves [lo, hi].</summary>
+        static float AxisLimit(float from, float step, float lo, float hi, float wanted)
+        {
+            if (Mathf.Abs(step) < 1e-4f) return wanted;
+            float bound = step > 0f ? hi : lo;
+            float d = (bound - from) / step;
+            return d < 0f ? 0f : d;
         }
 
         /// <summary>The lizard's current heading as a flat world direction.</summary>
@@ -179,15 +199,15 @@ namespace ThermalTail
             Vector3 fwd = Mode == RigMode.ChaseTurning ? _forward : _fixedForward;
             InputYaw = Mathf.Atan2(fwd.x, fwd.z);
 
-            Vector3 eye = focus - fwd * ChaseDistance + Vector3.up * ChaseHeight;
-            Vector3 aim = focus + fwd * ChaseLookAhead;
+            // Pull in along the same ray when the arena is tight, and scale the height and
+            // the lead by the same factor, so the framing tightens but the angle - and the
+            // lizard's place in the frame - stay put.
+            float d = FittedDistance(focus, fwd, Director.Settings, ChaseDistance);
+            float scale = ChaseDistance > 0.01f ? d / ChaseDistance : 1f;
+            float height = Mathf.Max(MinChaseHeight, ChaseHeight * scale);
 
-            // Slide the whole rig in rather than just the eye. Clamping the eye alone would
-            // keep the aim where it was and tip the camera steeply downward every time the
-            // lizard hugged an edge, which is most of the first second of every level.
-            Vector3 slid = KeepInside(eye, Director.Settings);
-            aim += slid - eye;
-            eye = slid;
+            Vector3 eye = focus - fwd * d + Vector3.up * height;
+            Vector3 aim = focus + fwd * (ChaseLookAhead * scale);
 
             transform.position = eye;
             transform.rotation = Quaternion.LookRotation((aim - eye).normalized, Vector3.up);

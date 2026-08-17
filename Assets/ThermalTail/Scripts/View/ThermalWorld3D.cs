@@ -18,9 +18,12 @@ namespace ThermalTail
         public Color WallColor = new Color(0.17f, 0.19f, 0.23f);
         public Color FogColor = new Color(0.07f, 0.09f, 0.13f);
         public float WallHeight = 2.4f;
+        [Tooltip("How far below the decks the unreachable base sits, on levels made of islands.")]
+        public float VoidDepth = 9f;
+        public Color VoidColor = new Color(0.04f, 0.05f, 0.07f);
 
         /// <summary>Build the floor, edge wall and lighting for a level. Safe to call again.</summary>
-        public static ThermalWorld3D Build(LevelSettings settings)
+        public static ThermalWorld3D Build(LevelSettings settings, bool solidFloor = true)
         {
             if (settings == null) return null;
 
@@ -29,15 +32,19 @@ namespace ThermalTail
 
             var root = new GameObject("World 3D (runtime)");
             var world = root.AddComponent<ThermalWorld3D>();
-            world.Construct(settings);
+            world.Construct(settings, solidFloor);
             return world;
         }
 
-        void Construct(LevelSettings settings)
+        void Construct(LevelSettings settings, bool solidFloor)
         {
             float w = Mathf.Max(1f, settings.Width) / TTCoord.PixelsPerUnit;
             float h = Mathf.Max(1f, settings.Height) / TTCoord.PixelsPerUnit;
             Vector3 centre = TTCoord.RectCenter(0f, 0f, settings.Width, settings.Height, 0f);
+
+            // Ground runs past the play area so the chase camera has somewhere to stand
+            // behind a lizard that spawns on the edge. See TTView.ArenaApron.
+            float apron = TTView.ArenaApron * 2f;
 
             var floorMat = MakeMaterial(FloorColor, 0.92f);
             var wallMat = MakeMaterial(WallColor, 0.85f);
@@ -46,20 +53,31 @@ namespace ThermalTail
             // black the moment anything looks at it from the wrong side, and a slab also
             // takes the fog and the key light the same way the rest of the greybox does.
             // Its top face sits exactly on y = 0, which is what every height here assumes.
+            //
+            // A side-authored level has no continuous floor at all - its decks are islands
+            // over open air - so the slab drops far below as an unreachable base. Draw it at
+            // y = 0 there and every pit would look like solid ground you cannot fall through.
             const float slab = 0.4f;
+            float floorTop = solidFloor ? 0f : -VoidDepth;
             var floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            floor.name = "Floor";
+            floor.name = solidFloor ? "Floor" : "Void Base";
             floor.transform.SetParent(transform, false);
-            floor.transform.position = centre + Vector3.down * (slab * 0.5f);
-            floor.transform.localScale = new Vector3(w, slab, h);
-            Strip(floor, floorMat);
+            floor.transform.position = centre + Vector3.up * (floorTop - slab * 0.5f);
+            floor.transform.localScale = new Vector3(w + apron, slab, h + apron);
+            Strip(floor, solidFloor ? floorMat : MakeMaterial(VoidColor, 0.98f));
 
-            // Edge wall, so the arena has a readable boundary from a low chase camera.
-            const float t = 0.35f;
-            AddWall("Wall N", centre + new Vector3(0f, WallHeight * 0.5f, h * 0.5f), new Vector3(w + t, WallHeight, t), wallMat);
-            AddWall("Wall S", centre + new Vector3(0f, WallHeight * 0.5f, -h * 0.5f), new Vector3(w + t, WallHeight, t), wallMat);
-            AddWall("Wall E", centre + new Vector3(w * 0.5f, WallHeight * 0.5f, 0f), new Vector3(t, WallHeight, h + t), wallMat);
-            AddWall("Wall W", centre + new Vector3(-w * 0.5f, WallHeight * 0.5f, 0f), new Vector3(t, WallHeight, h + t), wallMat);
+            // Edge wall, at the apron's rim so it never stands between camera and lizard.
+            // Levels made of islands get no wall at all: the drop is already the boundary,
+            // and a fence ringing empty air just reads as a mistake.
+            if (solidFloor)
+            {
+                const float t = 0.35f;
+                float ew = w + apron, eh = h + apron;
+                AddWall("Wall N", centre + new Vector3(0f, WallHeight * 0.5f, eh * 0.5f), new Vector3(ew + t, WallHeight, t), wallMat);
+                AddWall("Wall S", centre + new Vector3(0f, WallHeight * 0.5f, -eh * 0.5f), new Vector3(ew + t, WallHeight, t), wallMat);
+                AddWall("Wall E", centre + new Vector3(ew * 0.5f, WallHeight * 0.5f, 0f), new Vector3(t, WallHeight, eh + t), wallMat);
+                AddWall("Wall W", centre + new Vector3(-ew * 0.5f, WallHeight * 0.5f, 0f), new Vector3(t, WallHeight, eh + t), wallMat);
+            }
 
             ApplyLighting();
         }

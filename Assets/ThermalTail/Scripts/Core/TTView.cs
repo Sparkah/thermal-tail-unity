@@ -19,14 +19,14 @@ namespace ThermalTail
         /// `planAuthored` says whether the level's rects were drawn as a floor plan or as a
         /// side elevation. It matters for ledges and only for ledges. A climb level's
         /// platforms really are obstacles seen from above, so they stand up as walls. A side
-        /// level's platforms are the floor you used to run along - stand those up and the
-        /// lizard spawns sealed inside the shelf it was meant to be standing on - so in plan
-        /// view they lie flat as decking instead.
+        /// level's platforms are the ground you used to run along, so in plan they become
+        /// decks raised over open air - you walk on top of them and the gaps between them
+        /// are a drop, which is what they meant in the side view too.
         /// </summary>
         public static float StandingHeight(TTObjectType type, bool planAuthored = true)
         {
             if (!planAuthored && (type == TTObjectType.Platform || type == TTObjectType.MovingPlatform))
-                return 0.07f;
+                return DeckHeight;
 
             switch (type)
             {
@@ -55,6 +55,28 @@ namespace ThermalTail
             type == TTObjectType.IceMist || type == TTObjectType.DryAir ||
             type == TTObjectType.Wind || type == TTObjectType.AmbientZone ||
             type == TTObjectType.SunPatch;
+
+        /// <summary>
+        /// Ground built beyond the level rect, in Unity units, purely so the camera has
+        /// somewhere to stand.
+        ///
+        /// The levels start the lizard about a unit from the edge, which was free in a side
+        /// view and is not here: a chase camera needs room behind its subject, and without
+        /// an apron it opens either outside the boundary wall or staring at the wall's back.
+        /// The lizard still cannot reach the apron - the simulation clamps it to the level
+        /// rect exactly as before - so this changes framing and nothing else.
+        /// </summary>
+        public const float ArenaApron = 6f;
+
+        /// <summary>
+        /// How thick a raised deck is on a side-authored level, in Unity units. The lizard
+        /// stands on top of it, so this is also the height it lands at, and the drop either
+        /// side of it is the pit the original level had between its ledges.
+        /// </summary>
+        public const float DeckHeight = 0.5f;
+
+        /// <summary>Deck top expressed in the simulation's source pixels.</summary>
+        public const float DeckTopPixels = DeckHeight * 100f;
 
         /// <summary>How far a glowmoth floats off the floor, in Unity units.</summary>
         public const float MothFloatHeight = 0.55f;

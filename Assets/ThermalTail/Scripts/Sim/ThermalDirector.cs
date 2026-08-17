@@ -284,7 +284,7 @@ namespace ThermalTail
             if (GroundPlay)
             {
                 ApplyStandingHeights();
-                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings);
+                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, PlanAuthored);
             }
 
             TotalMoths = 0;
@@ -304,10 +304,12 @@ namespace ThermalTail
             float sy = TTMath.Clamp(Settings.PlayerStart.y, -200f, Settings.Height + 100f);
             float air = AmbientAt(sx, sy);
 
+            SnapToSurface(ref sx, ref sy);
             px = sx; py = sy;
             pw = Tuning.PlayerWidth; ph = Tuning.PlayerHeight;
             pvx = pvy = 0f;
-            PLift = PLiftVel = 0f;
+            PLiftVel = 0f;
+            PLift = GroundPlay ? Mathf.Max(0f, SurfaceTopAt(sx, sy)) : 0f;
             PFacing = 1;
             PAngle = -Mathf.PI * 0.5f;
             if (GroundPlay)
@@ -727,8 +729,19 @@ namespace ThermalTail
                     break;
                 }
             }
-            if (Mode == GameMode.Playing && !ClimbMode && py > Settings.Height + Tuning.FallDeathDepth)
-                CatchPlayer("the fall");
+            // Falling off the world. Side play drops you down the canvas; ground play drops
+            // you between the decks, which is the same death seen from a different angle.
+            if (Mode == GameMode.Playing)
+            {
+                if (GroundPlay)
+                {
+                    if (PLift < -Tuning.FallDeathDepth) CatchPlayer("the fall");
+                }
+                else if (!ClimbMode && py > Settings.Height + Tuning.FallDeathDepth)
+                {
+                    CatchPlayer("the fall");
+                }
+            }
 
             if (Mode != GameMode.Playing) return;
             UpdateCameraDetection(dt);
@@ -963,16 +976,7 @@ namespace ThermalTail
                 PTemp = TTMath.Clamp(PTemp + Tuning.JumpHeat, 0f, 100f);
             }
 
-            PLiftVel = Mathf.Max(-Tuning.TerminalFall, PLiftVel - Tuning.Gravity * dt);
-            PLift += PLiftVel * dt;
-            if (PLift <= 0f)
-            {
-                PLift = 0f;
-                PLiftVel = 0f;
-                PGrounded = true;
-            }
-
-            // ---- floor collision, skipping anything the hop is currently above ----
+            // ---- move across the plane first, so the ground test reads where we now are ----
             float half = Tuning.ClimbHalfExtent;
             float nx = px + pvx * dt;
             if (!GroundBlocked(nx, py, half, PLift)) px = nx; else pvx = 0f;
@@ -981,6 +985,25 @@ namespace ThermalTail
 
             px = TTMath.Clamp(px, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Width - Tuning.ClimbEdgePad));
             py = TTMath.Clamp(py, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Height - Tuning.ClimbEdgePad));
+
+            // ---- then gravity, and land only from above ----
+            float floor = SurfaceTopAt(px, py);
+            float wasAt = PLift;
+            PLiftVel = Mathf.Max(-Tuning.TerminalFall, PLiftVel - Tuning.Gravity * dt);
+            PLift += PLiftVel * dt;
+
+            // Negative infinity is open air, so the test below is false there and the fall
+            // continues. The `wasAt` condition is what makes a gap lethal rather than
+            // forgiving: drop past a deck's top and you cannot pop back up through it, you
+            // can only come down onto one from above. Walking off an edge is a fall; the
+            // way across is the hop, with coyote time to leave late.
+            if (!float.IsNegativeInfinity(floor) && PLift <= floor && wasAt >= floor - 0.01f)
+            {
+                PLift = floor;
+                PLiftVel = 0f;
+                PGrounded = true;
+            }
+            else PGrounded = false;
 
             if (sp > 10f) PAngle = TTMath.AngleToward(PAngle, Mathf.Atan2(pvy, pvx), Tuning.ClimbAngleEase * dt);
 
@@ -999,6 +1022,60 @@ namespace ThermalTail
         /// currently hopping over stops counting. The clearance factor is deliberately under
         /// 1 so clearing a ledge means arcing over it rather than grazing the exact top.
         /// </summary>
+        /// <summary>
+        /// Height of the ground under a point, in source pixels, or negative infinity where
+        /// there is nothing to stand on.
+        ///
+        /// A plan-authored level is a solid floor with walls on it, so the answer is always
+        /// zero. A side-authored level is a set of decks over open air: you stand on a deck
+        /// or you are falling. The test is the lizard's centre rather than its whole square,
+        /// so walking off an edge drops you instead of leaving you hovering.
+        /// </summary>
+        public float SurfaceTopAt(float x, float y)
+        {
+            if (!GroundPlay || PlanAuthored) return 0f;
+
+            float top = float.NegativeInfinity;
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o.type != TTObjectType.Platform && o.type != TTObjectType.MovingPlatform) continue;
+                var r = ObjectRect(o, LevelTime);
+                if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
+                    top = Mathf.Max(top, TTView.DeckTopPixels);
+            }
+            return top;
+        }
+
+        /// <summary>True where the lizard would have nothing under it at all.</summary>
+        public bool OverVoid(float x, float y) => float.IsNegativeInfinity(SurfaceTopAt(x, y));
+
+        /// <summary>
+        /// Pull a spawn or checkpoint onto the nearest deck. The authored starts sit just
+        /// clear of the shelf the lizard used to be standing on, which was right in a side
+        /// view and is a hole in plan - without this, every side level opens by falling.
+        /// </summary>
+        void SnapToSurface(ref float x, ref float y)
+        {
+            if (!GroundPlay || PlanAuthored || !OverVoid(x, y)) return;
+
+            float inset = Tuning.ClimbHalfExtent + 4f;
+            float best = float.MaxValue, bx = x, by = y;
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o.type != TTObjectType.Platform && o.type != TTObjectType.MovingPlatform) continue;
+                var r = ObjectRect(o, LevelTime);
+                if (r.width < inset * 2f || r.height < inset * 2f) continue;
+
+                float cx = Mathf.Clamp(x, r.x + inset, r.x + r.width - inset);
+                float cy = Mathf.Clamp(y, r.y + inset, r.y + r.height - inset);
+                float d = TTMath.Hypot(cx - x, cy - y);
+                if (d < best) { best = d; bx = cx; by = cy; }
+            }
+            if (best < float.MaxValue) { x = bx; y = by; }
+        }
+
         bool GroundBlocked(float x, float y, float half, float lift)
         {
             var list = ClimbSolids();
@@ -1050,9 +1127,12 @@ namespace ThermalTail
                 ShowToast("OPERATION FAILED - PRESS R", 3f);
                 return;
             }
-            px = CheckpointX; py = CheckpointY;
+            float rx = CheckpointX, ry = CheckpointY;
+            SnapToSurface(ref rx, ref ry);
+            px = rx; py = ry;
             pvx = pvy = 0f;
-            PLift = PLiftVel = 0f;
+            PLiftVel = 0f;
+            PLift = GroundPlay ? Mathf.Max(0f, SurfaceTopAt(rx, ry)) : 0f;
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
             PGroundIndex = -1;
