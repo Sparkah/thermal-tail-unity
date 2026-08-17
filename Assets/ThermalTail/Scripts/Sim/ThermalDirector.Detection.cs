@@ -619,8 +619,8 @@ namespace ThermalTail
                 }
             }
 
-            float gdx = px - Settings.Goal.x;
-            float gdy = (ClimbMode ? py : py + ph * 0.5f) - Settings.Goal.y;
+            float gdx = px - GoalX;
+            float gdy = (ClimbMode ? py : py + ph * 0.5f) - GoalY;
             bool near = ClimbMode
                 ? TTMath.Hypot(gdx, gdy) < Tuning.GoalNearClimb
                 : (Mathf.Abs(gdx) < Tuning.GoalNearX && Mathf.Abs(gdy) < Tuning.GoalNearY);

@@ -151,6 +151,11 @@ namespace ThermalTail
         public GameMode Mode = GameMode.Playing;
         public float Grace, TransitionTimer;
         public float CheckpointX, CheckpointY;
+        /// <summary>
+        /// The den, after any plan-view correction. Always read this rather than
+        /// Settings.Goal, which is the authored side-view position and can sit over a drop.
+        /// </summary>
+        public float GoalX, GoalY;
         public int ActivatedCheckpoint = -1;
         public int Combo;
         public float ComboTimer;
@@ -237,6 +242,47 @@ namespace ThermalTail
         bool CoversLevel(Obj o) =>
             Settings != null && o.w * o.h >= Settings.Width * Settings.Height * 0.8f;
 
+        /// <summary>
+        /// Bring everything the player has to reach onto a deck.
+        ///
+        /// In the side view a glowmoth hanging in the air above a ledge was a jump you made;
+        /// read as a plan that same rect is out over the drop, unreachable however well you
+        /// play. Same for the den, a scent mark, or a vent that floated over a gap. Each one
+        /// moves to the nearest deck, keeping its authored size, so the designer's intent -
+        /// this thing belongs by that ledge - survives the change of reading.
+        ///
+        /// Only side-authored levels need it. A climb level was drawn as a plan already, and
+        /// anything placed off its walls was placed on the floor on purpose.
+        /// </summary>
+        void SnapObjectsToDecks()
+        {
+            if (!GroundPlay || PlanAuthored) return;
+
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o.comp != null && o.comp.IsMetadata) continue;
+                if (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform) continue;
+
+                float cx = o.x + o.w * 0.5f, cy = o.y + o.h * 0.5f;
+                if (!OverVoid(cx, cy)) continue;
+
+                SnapToSurface(ref cx, ref cy);
+                o.x = cx - o.w * 0.5f;
+                o.y = cy - o.h * 0.5f;
+            }
+
+            // The den is the one goal that is not an object, so it is moved by hand, along
+            // with the marker the importer dropped in the scene for it.
+            GoalX = Settings.Goal.x;
+            GoalY = Settings.Goal.y;
+            SnapToSurface(ref GoalX, ref GoalY);
+
+            var den = GameObject.Find("Exit Den");
+            if (den != null)
+                den.transform.position = TTCoord.Point(GoalX, GoalY, TTView.DeckHeight + 0.25f);
+        }
+
         void ApplyStandingHeights()
         {
             TTObject.SuppressAuthoring = true;
@@ -281,11 +327,6 @@ namespace ThermalTail
 
             LevelTime = 0f;
             BaseAmbient = TTMath.Clamp(Settings.Ambient, 0f, 100f);
-            if (GroundPlay)
-            {
-                ApplyStandingHeights();
-                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, PlanAuthored);
-            }
 
             TotalMoths = 0;
             for (int i = 0; i < Objects.Count; i++)
@@ -297,6 +338,18 @@ namespace ThermalTail
             {
                 var o = Objects[i];
                 o.x = o.ax; o.y = o.ay; o.w = o.aw; o.h = o.ah;
+            }
+
+            GoalX = Settings.Goal.x;
+            GoalY = Settings.Goal.y;
+
+            // Everything below reads the restored rects, so the plan-view corrections and
+            // the greybox placement have to happen after that restore, not before it.
+            if (GroundPlay)
+            {
+                SnapObjectsToDecks();
+                ApplyStandingHeights();
+                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, PlanAuthored);
             }
 
             float maxX = Mathf.Max(18f, Settings.Width - 18f);
@@ -317,8 +370,8 @@ namespace ThermalTail
                 // Face the objective at spawn. These levels were authored as side-on runs,
                 // so their long axis is wherever the den is - assuming a fixed forward put
                 // the chase camera outside the arena looking at a wall on level 1.
-                float gdx = Settings.Goal.x - sx;
-                float gdy = Settings.Goal.y - sy;
+                float gdx = GoalX - sx;
+                float gdy = GoalY - sy;
                 if (Mathf.Abs(gdx) > 1f || Mathf.Abs(gdy) > 1f) PAngle = Mathf.Atan2(gdy, gdx);
                 PFacing = gdx >= 0f ? 1 : -1;
             }
