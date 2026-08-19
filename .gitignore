@@ -1,3 +1,4 @@
+# Unity generated. None of this belongs to a collaborator's clone.
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -6,11 +7,52 @@
 [Ll]ogs/
 [Uu]serSettings/
 MemoryCaptures/
+[Mm]emoryCaptures/
+Recordings/
+
+# Asset meta data should only be ignored when the corresponding asset is also ignored
+!/[Aa]ssets/**/*.meta
+
+# IDE and OS
 .vs/
 .idea/
 .vscode/
+.consulo/
 *.csproj
+*.unityproj
 *.sln
+*.slnx
+*.suo
+*.tmp
 *.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
 .DS_Store
+._*
+Thumbs.db
+
+# Unity3D build and crash artefacts
+sysinfo.txt
+*.apk
+*.aab
+*.unitypackage
+*.app
+crashlytics-build.properties
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+ExportedObj/
+*.stackdump
+
+# Agent tooling, not part of the game. Kept on the machine that uses it: Unity loads a
+# folder under Packages/ as an embedded package without any manifest entry, so this stays
+# working locally while never reaching a clone.
+Packages/com.coplaydev.unity-mcp/
+
+# Reference frames rendered by TTCaptureShots
 _shots3d/
