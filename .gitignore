@@ -56,3 +56,7 @@ Packages/com.coplaydev.unity-mcp/
 
 # Reference frames rendered by TTCaptureShots
 _shots3d/
+
+# probe output from headless verification runs
+_probe/
+_STATUS.md
