@@ -81,6 +81,38 @@ namespace ThermalTail
         /// <summary>Set once at load from ThermalDirector. Read by every placement helper and gizmo.</summary>
         public static ViewPlane Plane = ViewPlane.Ground3D;
 
+        /// <summary>
+        /// The plane the CURRENT SCENE is laid out in for authoring, which is not always the
+        /// plane the game plays in. Set from LevelSettings.LaidOutInGround, which is stored
+        /// per scene, so a drag is always read back through the same axes it was made in.
+        /// Getting this wrong rewrites authored rects with nonsense, so it is deliberately
+        /// separate from Plane rather than sharing it.
+        /// </summary>
+        public static ViewPlane AuthorPlane = ViewPlane.Flat2D;
+
+        public static bool AuthorsInGround => AuthorPlane == ViewPlane.Ground3D;
+
+        // ---- authoring placement, in whichever plane the scene is laid out ----
+
+        public static Vector3 AuthorPoint(float px, float py, float lift = 0f)
+            => AuthorsInGround
+                ? new Vector3(px / PixelsPerUnit, lift, -py / PixelsPerUnit)
+                : new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, lift);
+
+        public static Vector3 AuthorRectCenter(float x, float y, float w, float h, float lift = 0f)
+            => AuthorPoint(x + w * 0.5f, y + h * 0.5f, lift);
+
+        public static Vector3 AuthorRectScale(float w, float h, float thickness)
+            => AuthorsInGround
+                ? new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Max(0.01f, thickness), Mathf.Abs(h) / PixelsPerUnit)
+                : new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, thickness);
+
+        public static float AuthorPixelsX(Vector3 p) => p.x * PixelsPerUnit;
+        public static float AuthorPixelsY(Vector3 p) => -(AuthorsInGround ? p.z : p.y) * PixelsPerUnit;
+        public static float AuthorPixelsW(Vector3 s) => Mathf.Abs(s.x) * PixelsPerUnit;
+        public static float AuthorPixelsH(Vector3 s) => Mathf.Abs(AuthorsInGround ? s.z : s.y) * PixelsPerUnit;
+        public static float AuthorHeight(Vector3 s) => AuthorsInGround ? Mathf.Abs(s.y) : Mathf.Abs(s.z);
+
         public static bool IsGround => Plane == ViewPlane.Ground3D;
 
         /// <summary>

@@ -293,7 +293,7 @@ namespace ThermalTail
                     var o = Objects[i];
                     if (o.comp == null || o.tf == null) continue;
                     if (o.comp.IsMetadata) { o.tf.gameObject.SetActive(false); continue; }
-                    o.comp.ViewDepth = TTView.StandingHeight(o.type, PlanAuthored);
+                    o.comp.ViewDepth = o.comp.EffectiveHeight(PlanAuthored);
                     o.tf.localScale = TTCoord.RectScale(o.w, o.h, o.comp.ViewDepth);
                     o.tf.localPosition = TTCoord.RectCenter(o.x, o.y, o.w, o.h, o.comp.ViewDepth * 0.5f);
                     o.tf.localRotation = Quaternion.identity;
@@ -1141,6 +1141,11 @@ namespace ThermalTail
                 // Every overlap gets tested, not just the first: hopping a low ledge must
                 // not smuggle you through a gate that happens to overlap the same square.
                 float topPixels = TTView.StandingHeight(list[i].type, PlanAuthored) * TTCoord.PixelsPerUnit;
+                if (list[i].index >= 0 && list[i].index < Objects.Count)
+                {
+                    var oc = Objects[list[i].index].comp;
+                    if (oc != null) topPixels = oc.EffectiveHeight(PlanAuthored) * TTCoord.PixelsPerUnit;
+                }
                 if (lift < topPixels * 0.85f) return true;
             }
             return false;

@@ -83,6 +83,16 @@ namespace ThermalTail
         /// <summary>Depth of the greybox proxy in Unity units. Presentation only.</summary>
         [HideInInspector] public float ViewDepth = 1f;
 
+        [Header("3D")]
+        [Tooltip("How tall this object stands, in Unity units. 0 means use the default for its " +
+                 "type. Scaling the object in the scene view while the level is laid out in 3D " +
+                 "writes this for you.")]
+        public float HeightOverride;
+
+        /// <summary>Standing height this object should use: its own if set, else the type default.</summary>
+        public float EffectiveHeight(bool planAuthored) =>
+            HeightOverride > 0.001f ? HeightOverride : TTView.StandingHeight(Type, planAuthored);
+
         /// <summary>
         /// Set while something places these transforms for presentation rather than
         /// authoring - the runtime ground-plane layout, or an editor screenshot pass. The
@@ -108,30 +118,59 @@ namespace ThermalTail
         /// </summary>
         public void SyncFromTransform()
         {
+            // Resolve the scene's authoring plane before reading anything. Relying on
+            // LevelSettings having published it first would be an ordering bet, and losing
+            // that bet rewrites every authored rect through the wrong axes.
+            EnsureAuthorPlane();
+
             var p = transform.localPosition;
             var s = transform.localScale;
 
-            var expectedPos = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
-            var expectedScale = TTCoord.FlatRectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
+            var expectedPos = TTCoord.AuthorRectCenter(SourceX, SourceY, SourceW, SourceH, AuthorLift());
+            var expectedScale = TTCoord.AuthorRectScale(SourceW, SourceH, Mathf.Max(0.05f, AuthorThickness()));
             const float eps = 1e-4f;
-            if (Mathf.Abs(p.x - expectedPos.x) < eps && Mathf.Abs(p.y - expectedPos.y) < eps &&
-                Mathf.Abs(s.x - expectedScale.x) < eps && Mathf.Abs(s.y - expectedScale.y) < eps)
+            if (Mathf.Abs(p.x - expectedPos.x) < eps &&
+                Mathf.Abs(TTCoord.AuthorPixelsY(p) - TTCoord.AuthorPixelsY(expectedPos)) < eps * TTCoord.PixelsPerUnit &&
+                Mathf.Abs(s.x - expectedScale.x) < eps &&
+                Mathf.Abs(TTCoord.AuthorPixelsH(s) - TTCoord.AuthorPixelsH(expectedScale)) < eps * TTCoord.PixelsPerUnit)
                 return;
 
-            float w = TTCoord.FlatPixelsW(s);
-            float h = TTCoord.FlatPixelsH(s);
+            float w = TTCoord.AuthorPixelsW(s);
+            float h = TTCoord.AuthorPixelsH(s);
             SourceW = w;
             SourceH = h;
-            SourceX = TTCoord.FlatPixelsX(p) - w * 0.5f;
-            SourceY = TTCoord.FlatPixelsY(p) - h * 0.5f;
+            SourceX = TTCoord.AuthorPixelsX(p) - w * 0.5f;
+            SourceY = TTCoord.AuthorPixelsY(p) - h * 0.5f;
+
+            // In 3D layout the remaining axis IS the standing height, so scaling the box in
+            // the scene view is how you set how tall a thing is. Nothing else writes this.
+            if (TTCoord.AuthorsInGround) HeightOverride = TTCoord.AuthorHeight(s);
         }
 
         /// <summary>Place the greybox proxy from the authored source rect.</summary>
         public void SyncToTransform()
         {
-            transform.localPosition = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH, ViewDepth * 0.5f);
-            transform.localScale = TTCoord.FlatRectScale(SourceW, SourceH, Mathf.Max(0.05f, ViewDepth));
+            transform.localPosition = TTCoord.AuthorRectCenter(SourceX, SourceY, SourceW, SourceH, AuthorLift());
+            transform.localScale = TTCoord.AuthorRectScale(SourceW, SourceH, Mathf.Max(0.05f, AuthorThickness()));
+            if (TTCoord.AuthorsInGround) transform.localRotation = Quaternion.identity;
         }
+
+        /// <summary>
+        /// Make TTCoord.AuthorPlane agree with this scene before a drag is read back.
+        /// Only runs off the edit-mode validate path, which is rare enough for the lookup.
+        /// </summary>
+        void EnsureAuthorPlane()
+        {
+            if (Application.isPlaying) return;
+            var ls = FindFirstObjectByType<LevelSettings>();
+            if (ls != null) ls.PublishAuthorPlane();
+        }
+
+        /// <summary>Thickness along the authoring plane's spare axis: height in 3D, depth in 2D.</summary>
+        float AuthorThickness() => TTCoord.AuthorsInGround ? EffectiveHeight(false) : ViewDepth;
+
+        /// <summary>Offset along that spare axis so a 3D box sits on the floor rather than through it.</summary>
+        float AuthorLift() => AuthorThickness() * 0.5f;
 
         public bool IsMetadata =>
             Type == TTObjectType.Ambient || Type == TTObjectType.StartTemp ||
@@ -141,8 +180,8 @@ namespace ThermalTail
         {
             Gizmos.color = new Color(1f, 1f, 1f, 0.35f);
             Gizmos.DrawWireCube(
-                TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH),
-                TTCoord.FlatRectScale(SourceW, SourceH, 0.1f));
+                TTCoord.AuthorRectCenter(SourceX, SourceY, SourceW, SourceH),
+                TTCoord.AuthorRectScale(SourceW, SourceH, 0.1f));
         }
 
         void OnDrawGizmos()
@@ -168,9 +207,9 @@ namespace ThermalTail
             float height = Mathf.Max(100f, Mathf.Abs(SourceH));
             float dir = (float)(int)Facing;
             float apexY = SourceY + 25f;
-            Vector3 apex = TTCoord.FlatPoint(SourceX, apexY);
-            Vector3 far0 = TTCoord.FlatPoint(SourceX + dir * range, SourceY + height * 0.34f);
-            Vector3 far1 = TTCoord.FlatPoint(SourceX + dir * range, SourceY + height);
+            Vector3 apex = TTCoord.AuthorPoint(SourceX, apexY);
+            Vector3 far0 = TTCoord.AuthorPoint(SourceX + dir * range, SourceY + height * 0.34f);
+            Vector3 far1 = TTCoord.AuthorPoint(SourceX + dir * range, SourceY + height);
             Gizmos.color = new Color(0.3f, 0.85f, 1f, 0.8f);
             Gizmos.DrawLine(apex, far0);
             Gizmos.DrawLine(apex, far1);
@@ -183,13 +222,13 @@ namespace ThermalTail
             Vector3 a, b;
             if (Patrol == PatrolAxis.Vertical)
             {
-                a = TTCoord.FlatPoint(SourceX, SourceY - span * 0.5f);
-                b = TTCoord.FlatPoint(SourceX, SourceY + span * 0.5f);
+                a = TTCoord.AuthorPoint(SourceX, SourceY - span * 0.5f);
+                b = TTCoord.AuthorPoint(SourceX, SourceY + span * 0.5f);
             }
             else
             {
-                a = TTCoord.FlatPoint(SourceX - span * 0.5f, SourceY);
-                b = TTCoord.FlatPoint(SourceX + span * 0.5f, SourceY);
+                a = TTCoord.AuthorPoint(SourceX - span * 0.5f, SourceY);
+                b = TTCoord.AuthorPoint(SourceX + span * 0.5f, SourceY);
             }
             Gizmos.color = new Color(1f, 0.55f, 0.35f, 0.9f);
             Gizmos.DrawLine(a, b);
@@ -200,7 +239,7 @@ namespace ThermalTail
         void DrawLedgeGizmo()
         {
             float amp = TTMath.Clamp(Mathf.Abs(Value), 0f, 600f);
-            Vector3 c = TTCoord.FlatRectCenter(SourceX, SourceY, SourceW, SourceH);
+            Vector3 c = TTCoord.AuthorRectCenter(SourceX, SourceY, SourceW, SourceH);
             Vector3 off = LedgeAxis == PatrolAxis.Vertical
                 ? new Vector3(0f, amp / TTCoord.PixelsPerUnit, 0f)
                 : new Vector3(amp / TTCoord.PixelsPerUnit, 0f, 0f);
