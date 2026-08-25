@@ -261,69 +261,52 @@ namespace ThermalTail.EditorTools
             return false;
         }
 
+        /// <summary>How deep each kind of box is. Presentation only; scale Z to change it.</summary>
+        static float DefaultDepth(TTObjectType t)
+        {
+            foreach (var spec in TTPrefabBuilder.Specs)
+                if (spec.Type == t) return Mathf.Max(0.05f, spec.Depth);
+            return 1f;
+        }
+
         /// <summary>
-        /// Put a marker on top of the nearest platform. The authored spawn and den are side
-        /// view coordinates: read as a floor plan they often land in a gap, and a lizard
-        /// that spawns in a gap falls out of the level before the player touches anything.
+        /// One material per object type, taken from the same spec table the old prefabs were
+        /// generated from. Volumes render translucent so a climate zone the size of the level
+        /// does not paint over everything behind it - which is what an opaque one did.
         /// </summary>
-        static Vector3 OnNearestDeck(GameObject objectsRoot, Vector2 source, float clearance)
+        static Dictionary<TTObjectType, Material> SpecMaterials()
         {
-            Vector3 want = TTCoord.Point(source.x, source.y);
-            var decks = objectsRoot.GetComponentsInChildren<TTPiece>();
-
-            float best = float.MaxValue;
-            Vector3 chosen = new Vector3(want.x, clearance, want.z);
-            foreach (var d in decks)
-            {
-                if (d.Type != TTObjectType.Platform && d.Type != TTObjectType.MovingPlatform) continue;
-                var p = d.transform.position;
-                var s = d.transform.lossyScale;
-                float hx = Mathf.Abs(s.x) * 0.5f, hz = Mathf.Abs(s.z) * 0.5f;
-                var on = new Vector3(Mathf.Clamp(want.x, p.x - hx, p.x + hx),
-                                     d.TopY() + clearance,
-                                     Mathf.Clamp(want.z, p.z - hz, p.z + hz));
-                float dist = Vector2.Distance(new Vector2(want.x, want.z), new Vector2(on.x, on.z));
-                if (dist < best) { best = dist; chosen = on; }
-            }
-            return chosen;
-        }
-
-        /// <summary>How tall each kind of thing starts out. Drag the cube to change it.</summary>
-        static float DefaultHeight(TTObjectType t)
-        {
-            switch (t)
-            {
-                case TTObjectType.Platform: return 0.5f;
-                case TTObjectType.MovingPlatform: return 0.5f;
-                case TTObjectType.ThermalGate: return 1.9f;
-                case TTObjectType.Shelter: return 0.85f;
-                case TTObjectType.CoolRock: return 0.55f;
-                case TTObjectType.WarmVent: return 0.22f;
-                case TTObjectType.SunPatch: return 0.05f;
-                case TTObjectType.IceMist:
-                case TTObjectType.DryAir:
-                case TTObjectType.Wind: return 1.25f;
-                case TTObjectType.AmbientZone: return 0.04f;
-                case TTObjectType.Thorn: return 0.45f;
-                case TTObjectType.Moth: return 0.18f;
-                case TTObjectType.Camera: return 2.1f;
-                case TTObjectType.Guard: return 0.95f;
-                case TTObjectType.Checkpoint: return 0.3f;
-                default: return 0.5f;
-            }
-        }
-
-        static Dictionary<TTObjectType, Material> LoadMaterials()
-        {
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var d = new Dictionary<TTObjectType, Material>();
-            foreach (var g in AssetDatabase.FindAssets("t:Material", new[] { "Assets/ThermalTail/Materials" }))
+            if (shader == null) return d;
+
+            foreach (var spec in TTPrefabBuilder.Specs)
             {
-                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g));
-                if (m == null) continue;
-                var key = ParseType(m.name.Replace("_", "").Replace(" ", ""));
-                if (key != TTObjectType.Unknown && !d.ContainsKey(key)) d[key] = m;
+                if (d.ContainsKey(spec.Type)) continue;
+                var m = new Material(shader);
+                var c = spec.Colour;
+                bool volume = spec.Trigger && spec.Type != TTObjectType.Moth && spec.Type != TTObjectType.Guard;
+                if (volume)
+                {
+                    c.a = 0.28f;
+                    m.SetFloat("_Surface", 1f);
+                    m.SetFloat("_Blend", 0f);
+                    m.SetFloat("_ZWrite", 0f);
+                    m.renderQueue = 3000;
+                    m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                }
+                m.SetColor("_BaseColor", c);
+                m.SetColor("_Color", c);
+                d[spec.Type] = m;
             }
             return d;
+        }
+
+        static PrimitiveType ShapeFor(TTObjectType t)
+        {
+            foreach (var spec in TTPrefabBuilder.Specs)
+                if (spec.Type == t) return spec.Primitive;
+            return PrimitiveType.Cube;
         }
 
         static string BuildScene(JLevel level, int index, Dictionary<TTObjectType, GameObject> prefabs)
@@ -377,7 +360,7 @@ namespace ThermalTail.EditorTools
 
             // ---- objects ----
             var parent = new GameObject("Objects");
-            var mats = LoadMaterials();
+            var mats = SpecMaterials();
             int created = 0, unknown = 0;
             if (level.objects != null)
             {
@@ -392,17 +375,16 @@ namespace ThermalTail.EditorTools
                     if (rw < 0) { rx += rw; rw = -rw; }
                     if (rh < 0) { ry += rh; rh = -rh; }
 
-                    var inst = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    var inst = GameObject.CreatePrimitive(ShapeFor(type));
                     inst.transform.SetParent(parent.transform, false);
                     UnityEngine.Object.DestroyImmediate(inst.GetComponent<Collider>());
 
-                    float height = DefaultHeight(type);
+                    // Side elevation, exactly as the original: the rect is the box, and the
+                    // only new axis is depth toward the camera, which nothing simulates.
                     inst.transform.localScale = new Vector3(Mathf.Max(0.01f, rw / TTCoord.PixelsPerUnit),
-                                                           height,
-                                                           Mathf.Max(0.01f, rh / TTCoord.PixelsPerUnit));
-                    inst.transform.position = new Vector3((rx + rw * 0.5f) / TTCoord.PixelsPerUnit,
-                                                          height * 0.5f,
-                                                          -(ry + rh * 0.5f) / TTCoord.PixelsPerUnit);
+                                                            Mathf.Max(0.01f, rh / TTCoord.PixelsPerUnit),
+                                                            DefaultDepth(type));
+                    inst.transform.position = TTCoord.RectCenter(rx, ry, rw, rh, DefaultDepth(type) * 0.5f);
 
                     var tt = inst.AddComponent<TTPiece>();
                     tt.Type = type;
@@ -421,14 +403,14 @@ namespace ThermalTail.EditorTools
             lizard.name = "Lizard";
             UnityEngine.Object.DestroyImmediate(lizard.GetComponent<Collider>());
             lizard.transform.localScale = new Vector3(0.5f, 0.32f, 0.5f);
-            lizard.transform.position = OnNearestDeck(parent, settings.PlayerStart, 0.24f);
+            lizard.transform.position = TTCoord.Point(settings.PlayerStart.x, settings.PlayerStart.y);
 
 
             var goal = GameObject.CreatePrimitive(PrimitiveType.Cube);
             goal.name = "Exit Den";
             UnityEngine.Object.DestroyImmediate(goal.GetComponent<Collider>());
             goal.transform.localScale = new Vector3(0.9f, 0.7f, 0.9f);
-            goal.transform.position = OnNearestDeck(parent, settings.Goal, 0.35f);
+            goal.transform.position = TTCoord.Point(settings.Goal.x, settings.Goal.y, 0.5f);
 
 
             // ---- camera ----
@@ -448,7 +430,6 @@ namespace ThermalTail.EditorTools
             director.Tuning = tuning;
             director.Settings = settings;
             director.PlayerView = lizard.transform;
-            director.Den = goal.transform;
             director.CameraRig = rig;
             rig.Director = director;
             var tint = lizard.GetComponent<ThermalTint>();

@@ -33,11 +33,8 @@ namespace ThermalTail
         [Tooltip("True when the level carries a Climb Wall marker: top-down 8-way movement, no gravity.")]
         public bool IsClimb;
 
-        [Header("Import data only - the game never reads these")]
-        [Tooltip("Where the browser build started the lizard. The importer uses it to place " +
-                 "the Lizard object once; after that the object's own position is the spawn.")]
+        [Header("Placement (source pixels, top-left origin, y down)")]
         public Vector2 PlayerStart = new Vector2(130f, 800f);
-        [Tooltip("Same, for the den.")]
         public Vector2 Goal = new Vector2(2870f, 825f);
 
         [Header("Designer notes")]
@@ -51,6 +48,11 @@ namespace ThermalTail
             Gizmos.DrawWireCube(
                 TTCoord.RectCenter(0f, 0f, Width, Height),
                 TTCoord.RectScale(Width, Height, 0.05f));
+
+            Gizmos.color = new Color(0.5f, 1f, 0.7f, 1f);
+            Gizmos.DrawWireSphere(TTCoord.Point(PlayerStart.x, PlayerStart.y), 0.4f);
+            Gizmos.color = new Color(1f, 0.85f, 0.4f, 1f);
+            Gizmos.DrawWireSphere(TTCoord.Point(Goal.x, Goal.y), 0.5f);
         }
     }
 }

@@ -88,8 +88,6 @@ namespace ThermalTail
         public float ClimbHeatScale = 0.55f;
         public float ClimbAngleEase = 9f;
         public float ClimbEdgePad = 30f;
-        [Tooltip("How high a box the lizard walks straight up instead of being stopped by, in source pixels.")]
-        public float StepUpPixels = 26f;
 
         [Header("Surveillance lens - side")]
         public float LensPeriodFast = 3.55f;

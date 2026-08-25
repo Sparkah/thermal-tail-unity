@@ -84,32 +84,31 @@ namespace ThermalTail
             Type == TTObjectType.Quota || Type == TTObjectType.ClimbWall;
 
         /// <summary>
-        /// Footprint on the ground plane, in the source pixels the simulation runs in.
-        /// Source y grows away from the camera, which is -Z, hence the negation.
+        /// The rect the simulation runs against, in source pixels, read straight off the
+        /// transform. The level is a side elevation exactly as the original was: x across,
+        /// y down the screen, and the box's Z scale is depth toward the camera, which the
+        /// simulation never looks at.
         /// </summary>
         public Rect Footprint()
         {
             var p = transform.position;
             var s = transform.lossyScale;
             float w = Mathf.Abs(s.x) * TTCoord.PixelsPerUnit;
-            float h = Mathf.Abs(s.z) * TTCoord.PixelsPerUnit;
+            float h = Mathf.Abs(s.y) * TTCoord.PixelsPerUnit;
             return new Rect(p.x * TTCoord.PixelsPerUnit - w * 0.5f,
-                            -p.z * TTCoord.PixelsPerUnit - h * 0.5f,
+                            -p.y * TTCoord.PixelsPerUnit - h * 0.5f,
                             w, h);
         }
 
-        /// <summary>Top of the box in Unity units. This is what you stand on and hop over.</summary>
-        public float TopY() => transform.position.y + Mathf.Abs(transform.lossyScale.y) * 0.5f;
+        /// <summary>How far the box sticks out toward the camera. Presentation only.</summary>
+        public float ViewDepth => Mathf.Abs(transform.lossyScale.z);
 
         void OnDrawGizmosSelected()
         {
-            var r = Footprint();
             Gizmos.color = Type == TTObjectType.Platform || Type == TTObjectType.MovingPlatform
                 ? new Color(0.55f, 0.85f, 1f, 0.9f)
                 : new Color(1f, 0.8f, 0.35f, 0.9f);
-            var c = transform.position;
-            Gizmos.DrawWireCube(new Vector3(c.x, TopY(), c.z),
-                new Vector3(r.width / TTCoord.PixelsPerUnit, 0.02f, r.height / TTCoord.PixelsPerUnit));
+            Gizmos.DrawWireCube(transform.position, transform.lossyScale);
         }
     }
 }

@@ -31,10 +31,6 @@ namespace ThermalTail
         public float x, y, w, h, value;
         public string label;
         public TTPiece comp;
-        /// <summary>Top of the box in Unity units, straight off the transform.</summary>
-        public float topY;
-        /// <summary>Where the scene put it. Anything that animates returns to this.</summary>
-        public Vector3 home;
         public Transform tf;
         public Renderer rend;
 
@@ -104,24 +100,8 @@ namespace ThermalTail
     {
         public ThermalTuning Tuning;
         public LevelSettings Settings;
-        [Tooltip("The lizard. Where you put it in the scene is where the level starts.")]
         public Transform PlayerView;
-        [Tooltip("The exit den. Where you put it is the goal.")]
-        public Transform Den;
         public FollowCameraRig CameraRig;
-
-        [Header("3D")]
-        [Tooltip("Lay every level out as a floor plan on the XZ ground plane and play it top-down in 3D. " +
-                 "Off falls back to the original side-on 2D port.")]
-        public bool GroundPlay = true;
-        [Tooltip("Build a floor, lighting and fog at runtime so the greybox reads as a place.")]
-        public bool BuildWorldDressing = true;
-        [Tooltip("The player is driven by TTPlayer and Unity physics; the simulation reads its " +
-                 "position and runs everything else - wardens, lenses, heat, moths, the den, " +
-                 "and losing. Off puts movement back inside the simulation.")]
-        public bool ExternalPlayer = true;
-        [Tooltip("Below this world height the lizard has fallen out of the level.")]
-        public float FallOutY = -6f;
 
         [Header("Debug")]
         public bool LogEvents;
@@ -137,12 +117,6 @@ namespace ThermalTail
 
         // ---- player ----
         public float px, py, pw = 72f, ph = 48f, pvx, pvy;
-        /// <summary>
-        /// Height off the floor in source pixels, and its velocity. Ground play only.
-        /// Side play keeps using py/pvy for the vertical axis exactly as the port did, so
-        /// this pair stays at zero there and no shared constant has to mean two things.
-        /// </summary>
-        public float PLift, PLiftVel;
         public int PFacing = 1;
         public float PAngle = -Mathf.PI * 0.5f;
         public bool PGrounded;
@@ -163,12 +137,7 @@ namespace ThermalTail
 
         public GameMode Mode = GameMode.Playing;
         public float Grace, TransitionTimer;
-        public float CheckpointX, CheckpointY, CheckpointLift;
-        /// <summary>
-        /// The den, after any plan-view correction. Always read this rather than
-        /// Settings.Goal, which is the authored side-view position and can sit over a drop.
-        /// </summary>
-        public float GoalX, GoalY;
+        public float CheckpointX, CheckpointY;
         public int ActivatedCheckpoint = -1;
         public int Combo;
         public float ComboTimer;
@@ -205,14 +174,6 @@ namespace ThermalTail
         /// ordering: the detection meters, gate states and per-lens phase offsets
         /// (index * 0.713) all key off it, so it has to be stable.
         /// </summary>
-        /// <summary>
-        /// Read the level out of the scene. Position, footprint and height all come from
-        /// each primitive's transform - there is no second copy that can disagree with it.
-        ///
-        /// Ordering still matters: detection meters, gate states and per-lens phase offsets
-        /// key off the index. SourceIndex pins it where a level cares; anything left at -1
-        /// falls in behind, ordered by name so it is at least stable between runs.
-        /// </summary>
         void GatherObjects()
         {
             Objects.Clear();
@@ -223,19 +184,17 @@ namespace ThermalTail
                 int bi = b.SourceIndex < 0 ? int.MaxValue : b.SourceIndex;
                 return ai != bi ? ai.CompareTo(bi) : string.CompareOrdinal(a.name, b.name);
             });
-
             for (int i = 0; i < found.Count; i++)
             {
                 var c = found[i];
-                var r = c.Footprint();
+                // The transform is the only place the rect lives now.
+                var rect = c.Footprint();
                 var o = new Obj
                 {
                     index = i,
                     type = c.Type,
-                    x = r.x, y = r.y, w = r.width, h = r.height,
-                    ax = r.x, ay = r.y, aw = r.width, ah = r.height,
-                    topY = c.TopY(),
-                    home = c.transform.position,
+                    x = rect.x, y = rect.y, w = rect.width, h = rect.height,
+                    ax = rect.x, ay = rect.y, aw = rect.width, ah = rect.height,
                     value = c.Value,
                     label = c.name,
                     comp = c,
@@ -265,14 +224,7 @@ namespace ThermalTail
                 return;
             }
 
-            TTCoord.Plane = GroundPlay ? ViewPlane.Ground3D : ViewPlane.Flat2D;
-
-            // Ground play runs every level through the climb rules: 8-way movement over a
-            // floor, per-axis AABB blocking, no gravity on the play plane. Those rules were
-            // already a top-down controller - the browser build just drew them on a wall -
-            // so promoting them is what turns the whole game 3D without retuning anything.
-            ClimbMode = GroundPlay || Settings.IsClimb;
-
+            ClimbMode = Settings.IsClimb;
             LevelTime = 0f;
             BaseAmbient = TTMath.Clamp(Settings.Ambient, 0f, 100f);
 
@@ -288,51 +240,16 @@ namespace ThermalTail
                 o.x = o.ax; o.y = o.ay; o.w = o.aw; o.h = o.ah;
             }
 
-            // The den is wherever the Den object sits in the scene.
-            GoalX = 0f; GoalY = 0f;
-            if (Den != null)
-            {
-                GoalX = Den.position.x * TTCoord.PixelsPerUnit;
-                GoalY = -Den.position.z * TTCoord.PixelsPerUnit;
-            }
-
-            // Everything below reads the restored rects, so the plan-view corrections and
-            // the greybox placement have to happen after that restore, not before it.
-            if (GroundPlay)
-            {
-                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, true);
-            }
-
-            // Spawn is wherever the lizard is sitting in the scene. Nothing corrects it,
-            // nothing snaps it, nothing falls back to a coordinate stored elsewhere. Move
-            // the object, that is where the level starts.
-            float sx = 0f, sy = 0f, startLift = 0f;
-            if (PlayerView != null)
-            {
-                var sp = PlayerView.position;
-                sx = sp.x * TTCoord.PixelsPerUnit;
-                sy = -sp.z * TTCoord.PixelsPerUnit;
-                startLift = sp.y * TTCoord.PixelsPerUnit;
-            }
+            float maxX = Mathf.Max(18f, Settings.Width - 18f);
+            float sx = TTMath.Clamp(Settings.PlayerStart.x, 18f, maxX);
+            float sy = TTMath.Clamp(Settings.PlayerStart.y, -200f, Settings.Height + 100f);
             float air = AmbientAt(sx, sy);
 
             px = sx; py = sy;
             pw = Tuning.PlayerWidth; ph = Tuning.PlayerHeight;
             pvx = pvy = 0f;
-            PLiftVel = 0f;
-            PLift = GroundPlay ? startLift : 0f;
             PFacing = 1;
             PAngle = -Mathf.PI * 0.5f;
-            if (GroundPlay)
-            {
-                // Face the objective at spawn. These levels were authored as side-on runs,
-                // so their long axis is wherever the den is - assuming a fixed forward put
-                // the chase camera outside the arena looking at a wall on level 1.
-                float gdx = GoalX - sx;
-                float gdy = GoalY - sy;
-                if (Mathf.Abs(gdx) > 1f || Mathf.Abs(gdy) > 1f) PAngle = Mathf.Atan2(gdy, gdx);
-                PFacing = gdx >= 0f ? 1 : -1;
-            }
             PGrounded = false;
             PGroundIndex = -1;
             PCoyote = Tuning.CoyoteTime;
@@ -342,7 +259,7 @@ namespace ThermalTail
             PFocus = 100f;
             PMatching = PMaskLocked = PHidden = false;
 
-            CheckpointX = sx; CheckpointY = sy; CheckpointLift = startLift;
+            CheckpointX = sx; CheckpointY = sy;
             ActivatedCheckpoint = -1;
             Collected.Clear();
             CameraMeters = new float[Objects.Count];
@@ -387,7 +304,7 @@ namespace ThermalTail
                 return;
             }
 
-            TTInput.Poll(ClimbMode, GroundPlay);
+            TTInput.Poll(ClimbMode);
 
             float elapsed = Mathf.Min(Tuning.MaxFrameElapsed, Mathf.Max(0f, Time.deltaTime));
             _accumulator += elapsed;
@@ -518,9 +435,6 @@ namespace ThermalTail
 
         List<Solid> BuildClimbSolids()
         {
-            // In a side-authored level the ledges lie flat as decking, so they are scenery,
-            // not geometry. A closed thermal gate is a barrier in either reading and always
-            // blocks - it is the one obstacle the hop is not allowed to beat.
             var outList = new List<Solid>();
             for (int i = 0; i < Objects.Count; i++)
             {
@@ -691,9 +605,7 @@ namespace ThermalTail
             PFocus = TTMath.Clamp(PFocus, 0f, 100f);
 
             float pace = PaceScale();
-            if (ExternalPlayer) ReadPlayerFromWorld(dt);
-            else if (GroundPlay) GroundMove3D(dt, pace, env);
-            else if (ClimbMode) ClimbMove(dt, pace, env);
+            if (ClimbMode) ClimbMove(dt, pace, env);
             else SideMove(dt, pace, env);
 
             PAmbient = AmbientAt(px, py);
@@ -739,8 +651,7 @@ namespace ThermalTail
                     break;
                 }
             }
-            if (Mode == GameMode.Playing && !GroundPlay && !ClimbMode &&
-                py > Settings.Height + Tuning.FallDeathDepth)
+            if (Mode == GameMode.Playing && !ClimbMode && py > Settings.Height + Tuning.FallDeathDepth)
                 CatchPlayer("the fall");
 
             if (Mode != GameMode.Playing) return;
@@ -911,209 +822,6 @@ namespace ThermalTail
             }
         }
 
-        /// <summary>
-        /// Ground play. Across the floor this is climbMove unchanged - the same 8-way
-        /// acceleration, the same per-axis blocking, the same heat and mask constants -
-        /// plus a third axis so the lizard can hop onto and over things.
-        /// </summary>
-        void GroundMove3D(float dt, float pace, Env env)
-        {
-            float yaw = CameraRig != null ? CameraRig.InputYaw : 0f;
-            float rawX = (TTInput.Right ? 1 : 0) - (TTInput.Left ? 1 : 0);
-            float rawY = (TTInput.Down ? 1 : 0) - (TTInput.Up ? 1 : 0);
-
-            // Camera-relative steering, so forward means forward on screen.
-            float cos = Mathf.Cos(yaw), sin = Mathf.Sin(yaw);
-            float dx = rawX * cos - rawY * sin;
-            float dy = rawX * sin + rawY * cos;
-
-            float maxSpeed = (PMatching ? Tuning.ClimbMaskedMaxSpeed : Tuning.ClimbMaxSpeed) * pace;
-            float accel = (PMatching ? Tuning.ClimbMaskedAccel : Tuning.ClimbAccel) * pace;
-
-            float mag = TTMath.Hypot(dx, dy);
-            if (mag > 0.0001f)
-            {
-                pvx = TTMath.MoveToward(pvx, dx / mag * maxSpeed, accel * dt);
-                pvy = TTMath.MoveToward(pvy, dy / mag * maxSpeed, accel * dt);
-                if (Mathf.Abs(dx) > 0.0001f) PFacing = dx > 0f ? 1 : -1;
-            }
-            else
-            {
-                pvx = TTMath.MoveToward(pvx, 0f, Tuning.ClimbFriction * dt);
-                pvy = TTMath.MoveToward(pvy, 0f, Tuning.ClimbFriction * dt);
-            }
-
-            pvx += env.wind * dt;
-            pvx = TTMath.Clamp(pvx, -Tuning.ClimbSpeedClamp, Tuning.ClimbSpeedClamp);
-            pvy = TTMath.Clamp(pvy, -Tuning.ClimbSpeedClamp, Tuning.ClimbSpeedClamp);
-
-            float sp = TTMath.Hypot(pvx, pvy);
-            PTemp = TTMath.Clamp(PTemp + sp / Tuning.ClimbHeatDivisor * Tuning.ClimbHeatScale * dt, 0f, 100f);
-
-            // ---- the hop ----
-            if (TTInput.JumpQueued)
-            {
-                PJumpBuffer = Tuning.JumpBufferTime;
-                TTInput.JumpQueued = false;
-            }
-            else PJumpBuffer = Mathf.Max(0f, PJumpBuffer - dt);
-
-            if (PGrounded) PCoyote = Tuning.CoyoteTime;
-            else PCoyote = Mathf.Max(0f, PCoyote - dt);
-
-            if (PJumpBuffer > 0f && PCoyote > 0f)
-            {
-                // JumpImpulse is authored negative for a canvas whose y grows down; PLift
-                // grows up, so the sign flips and every other jump constant still applies.
-                PLiftVel = -Tuning.JumpImpulse;
-                PJumpBuffer = 0f;
-                PCoyote = 0f;
-                PGrounded = false;
-                PTemp = TTMath.Clamp(PTemp + Tuning.JumpHeat, 0f, 100f);
-            }
-
-            // ---- move across the floor ----
-            float half = Tuning.ClimbHalfExtent;
-            float nx = px + pvx * dt;
-            if (!GroundBlocked(nx, py, half, PLift)) px = nx; else pvx = 0f;
-            float ny = py + pvy * dt;
-            if (!GroundBlocked(px, ny, half, PLift)) py = ny; else pvy = 0f;
-
-            px = TTMath.Clamp(px, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Width - Tuning.ClimbEdgePad));
-            py = TTMath.Clamp(py, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Height - Tuning.ClimbEdgePad));
-
-            // ---- then gravity, and land on whatever is under you ----
-            float floor = SurfaceTopAt(px, py);
-            PLiftVel = Mathf.Max(-Tuning.TerminalFall, PLiftVel - Tuning.Gravity * dt);
-            PLift += PLiftVel * dt;
-            if (PLift <= floor)
-            {
-                PLift = floor;
-                PLiftVel = 0f;
-                PGrounded = true;
-            }
-            else PGrounded = false;
-
-            if (sp > 10f) PAngle = TTMath.AngleToward(PAngle, Mathf.Atan2(pvy, pvx), Tuning.ClimbAngleEase * dt);
-
-            PGroundIndex = -1;
-
-            for (int i = 0; i < Objects.Count; i++)
-            {
-                var o = Objects[i];
-                if (o.type != TTObjectType.ThermalGate) continue;
-                GateStates[i] = GateOpen(o);
-            }
-        }
-
-        /// <summary>
-        /// Take the lizard's position from the scene rather than computing it.
-        ///
-        /// Movement, gravity and standing on things are the CharacterController's job now.
-        /// The simulation still needs to know where the lizard is, how fast it is going and
-        /// whether it is off the ground, because detection, heat and the wardens all read
-        /// those - so they are measured off the transform once a step instead.
-        /// </summary>
-        void ReadPlayerFromWorld(float dt)
-        {
-            if (PlayerView == null) return;
-
-            var p = PlayerView.position;
-            float nx = p.x * TTCoord.PixelsPerUnit;
-            float ny = -p.z * TTCoord.PixelsPerUnit;
-
-            if (dt > 0.0001f)
-            {
-                pvx = (nx - px) / dt;
-                pvy = (ny - py) / dt;
-            }
-            px = nx; py = ny;
-            PLift = p.y * TTCoord.PixelsPerUnit;
-
-            float sp = TTMath.Hypot(pvx, pvy);
-            PTemp = TTMath.Clamp(PTemp + sp / Tuning.ClimbHeatDivisor * Tuning.ClimbHeatScale * dt, 0f, 100f);
-            if (sp > 10f) PAngle = Mathf.Atan2(pvy, pvx);
-            PFacing = pvx >= 0f ? 1 : -1;
-            PGrounded = true;
-            PGroundIndex = -1;
-
-            // Gates still open and close on temperature even though nothing here moves them.
-            for (int i = 0; i < Objects.Count; i++)
-            {
-                var o = Objects[i];
-                if (o.type != TTObjectType.ThermalGate) continue;
-                bool open = GateOpen(o);
-                GateStates[i] = open;
-                if (o.rend != null) o.rend.enabled = !open;
-                var col = o.comp != null ? o.comp.GetComponent<Collider>() : null;
-                if (col != null) col.enabled = !open;
-            }
-
-            // Falling out of the world ignores spawn protection. Grace exists so a warden
-            // cannot take you the instant a level loads; it should not mean you drop through
-            // the floor for three seconds and keep going forever.
-            if (p.y < FallOutY && Mode == GameMode.Playing)
-            {
-                Grace = 0f;
-                CatchPlayer("the fall");
-            }
-        }
-
-        /// <summary>
-        /// Teleport the real object. A CharacterController refuses a straight position write,
-        /// so it is switched off for the move and back on after.
-        /// </summary>
-        public void PlacePlayerObject()
-        {
-            if (PlayerView == null) return;
-            var cc = PlayerView.GetComponent<CharacterController>();
-            if (cc != null) cc.enabled = false;
-            PlayerView.position = new Vector3(px / TTCoord.PixelsPerUnit,
-                                              Mathf.Max(0.2f, PLift / TTCoord.PixelsPerUnit),
-                                              -py / TTCoord.PixelsPerUnit);
-            if (cc != null) cc.enabled = true;
-        }
-
-        /// <summary>Height of the ground under a point, in source pixels. Never below zero.</summary>
-        public float SurfaceTopAt(float x, float y)
-        {
-            if (!GroundPlay) return 0f;
-
-            // The world has a floor at zero, always. Platforms raise you above it. There is
-            // no such thing as a hole, so there is nothing to fall through and nothing that
-            // needs correcting at spawn - which is three separate things that kept breaking.
-            float top = 0f;
-            for (int i = 0; i < Objects.Count; i++)
-            {
-                var o = Objects[i];
-                if (o.type != TTObjectType.Platform && o.type != TTObjectType.MovingPlatform) continue;
-                var r = ObjectRect(o, LevelTime);
-                if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
-                    top = Mathf.Max(top, o.topY * TTCoord.PixelsPerUnit);
-            }
-            return top;
-        }
-
-        bool GroundBlocked(float x, float y, float half, float lift)
-        {
-            var list = ClimbSolids();
-            for (int i = 0; i < list.Count; i++)
-            {
-                var r = list[i].rect;
-                if (x + half <= r.x || x - half >= r.x + r.width ||
-                    y + half <= r.y || y - half >= r.y + r.height) continue;
-
-                // You are stopped by anything whose top is meaningfully above your feet.
-                // Below that it is a step you walk up, and while you are above it - mid hop,
-                // or already standing on it - it is floor, not wall.
-                float topPixels = float.NegativeInfinity;
-                int idx = list[i].index;
-                if (idx >= 0 && idx < Objects.Count) topPixels = Objects[idx].topY * TTCoord.PixelsPerUnit;
-                if (lift + Tuning.StepUpPixels < topPixels) return true;
-            }
-            return false;
-        }
-
         // ---------------------------------------------------------------- flow
 
         public void ShowToast(string text, float duration)
@@ -1148,12 +856,8 @@ namespace ThermalTail
                 ShowToast("OPERATION FAILED - PRESS R", 3f);
                 return;
             }
-            float rx = CheckpointX, ry = CheckpointY;
-            px = rx; py = ry;
+            px = CheckpointX; py = CheckpointY;
             pvx = pvy = 0f;
-            PLiftVel = 0f;
-            PLift = GroundPlay ? CheckpointLift : 0f;
-            PlacePlayerObject();
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
             PGroundIndex = -1;
@@ -1201,7 +905,6 @@ namespace ThermalTail
             Mode = GameMode.LevelComplete;
             TransitionTimer = Tuning.LevelCompleteTransition;
             pvx = pvy = 0f;
-            PLift = PLiftVel = 0f;
             PMatching = false;
             TTInput.Clear();
             ShowToast(Settings.LevelName + " COMPLETE - BONUS " + bonus, 2.5f);

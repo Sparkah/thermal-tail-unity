@@ -54,62 +54,27 @@ namespace ThermalTail
         }
     }
 
-    /// <summary>Which Unity plane the source-pixel level is laid out on.</summary>
-    public enum ViewPlane
-    {
-        /// <summary>The original port: the level stands up in XY, depth runs along Z.</summary>
-        Flat2D,
-        /// <summary>Floor plan: source x is world X, source y is world Z, depth becomes height in Y.</summary>
-        Ground3D
-    }
-
     /// <summary>
     /// Source pixels to Unity units. The simulation runs in source pixels so every
     /// tuning constant stays byte-identical to the shipping build; conversion
     /// happens only at the presentation boundary.
-    ///
-    /// <see cref="Plane"/> reinterprets that boundary. In Ground3D the authored level is
-    /// read as a floor plan rather than an elevation: the same rects land flat on the XZ
-    /// ground and the old view depth extrudes them upward into standing geometry, which is
-    /// what lets a chase camera sit behind the lizard. Nothing in the simulation changes -
-    /// it still runs on (x, y) source pixels - so every tuning constant still holds.
     /// </summary>
     public static class TTCoord
     {
         public const float PixelsPerUnit = 100f;
 
-        /// <summary>Set once at load from ThermalDirector. Read by every placement helper and gizmo.</summary>
-        public static ViewPlane Plane = ViewPlane.Ground3D;
-
-        public static bool IsGround => Plane == ViewPlane.Ground3D;
-
-        /// <summary>
-        /// Source point to world. Canvas y grows down, so it negates either way; `lift` is
-        /// depth along Z in Flat2D and height above the floor in Ground3D.
-        /// </summary>
-        public static Vector3 Point(float px, float py, float lift = 0f)
-            => IsGround
-                ? new Vector3(px / PixelsPerUnit, lift, -py / PixelsPerUnit)
-                : new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, lift);
+        /// <summary>Canvas y grows down, Unity y grows up.</summary>
+        public static Vector3 Point(float px, float py, float z = 0f)
+            => new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, z);
 
         /// <summary>Top-left anchored source rect to a centred Unity position.</summary>
-        public static Vector3 RectCenter(float x, float y, float w, float h, float lift = 0f)
-            => Point(x + w * 0.5f, y + h * 0.5f, lift);
+        public static Vector3 RectCenter(float x, float y, float w, float h, float z = 0f)
+            => new Vector3((x + w * 0.5f) / PixelsPerUnit, -(y + h * 0.5f) / PixelsPerUnit, z);
 
-        /// <summary>`thickness` is the Z depth in Flat2D and the standing height in Ground3D.</summary>
-        public static Vector3 RectScale(float w, float h, float thickness)
-            => IsGround
-                ? new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Max(0.01f, thickness), Mathf.Abs(h) / PixelsPerUnit)
-                : new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, thickness);
+        public static Vector3 RectScale(float w, float h, float depth)
+            => new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, depth);
 
-        /// <summary>Unit vector the source +x axis points along in world space.</summary>
-        public static Vector3 AxisX => Vector3.right;
-        /// <summary>Unit vector the source +y axis (canvas down) points along in world space.</summary>
-        public static Vector3 AxisY => IsGround ? Vector3.back : Vector3.down;
-        /// <summary>Unit vector that `lift` pushes along: up off the floor, or toward the viewer.</summary>
-        public static Vector3 AxisLift => IsGround ? Vector3.up : Vector3.forward;
-
-        /// <summary>A source-space direction (dx, dy) as a world direction on the play plane.</summary>
-        public static Vector3 Direction(float dx, float dy) => AxisX * dx + AxisY * dy;
+        public static float ToPixelsX(float unityX) => unityX * PixelsPerUnit;
+        public static float ToPixelsY(float unityY) => -unityY * PixelsPerUnit;
     }
 }

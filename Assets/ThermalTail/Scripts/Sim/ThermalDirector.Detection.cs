@@ -619,8 +619,8 @@ namespace ThermalTail
                 }
             }
 
-            float gdx = px - GoalX;
-            float gdy = (ClimbMode ? py : py + ph * 0.5f) - GoalY;
+            float gdx = px - Settings.Goal.x;
+            float gdy = (ClimbMode ? py : py + ph * 0.5f) - Settings.Goal.y;
             bool near = ClimbMode
                 ? TTMath.Hypot(gdx, gdy) < Tuning.GoalNearClimb
                 : (Mathf.Abs(gdx) < Tuning.GoalNearX && Mathf.Abs(gdy) < Tuning.GoalNearY);
@@ -653,40 +653,11 @@ namespace ThermalTail
             return py - Tuning.CameraLiftSide;
         }
 
-        /// <summary>
-        /// Height of the deck under a point, in Unity units, or zero where the level has a
-        /// solid floor. Anything that stands in the world is placed on top of this, so
-        /// wardens and glowmoths sit on the decks rather than hovering at the void's level.
-        /// </summary>
-        float DeckLift(float x, float y)
-        {
-            float top = SurfaceTopAt(x, y);
-            return float.IsNegativeInfinity(top) ? 0f : top / TTCoord.PixelsPerUnit;
-        }
-
-
         /// <summary>Drive Unity transforms from the simulation. Presentation only.</summary>
         public void SyncView()
         {
-            // When physics owns the lizard, writing its transform here would fight the
-            // CharacterController and stutter it back every frame.
-            if (PlayerView != null && !ExternalPlayer)
-            {
-                bool ground = TTCoord.IsGround;
-                float lift = ground ? PLift / TTCoord.PixelsPerUnit + TTView.PlayerRideHeight : 0f;
-
-                PlayerView.localPosition = TTCoord.Point(px, py, lift);
-
-                // Point the lizard where it is actually going. PAngle already eases toward
-                // the movement direction, so the model turns with the same lag the camera does.
-                if (ground)
-                {
-                    var heading = TTCoord.Direction(Mathf.Cos(PAngle), Mathf.Sin(PAngle));
-                    heading.y = 0f;
-                    if (heading.sqrMagnitude > 1e-6f)
-                        PlayerView.localRotation = Quaternion.LookRotation(heading.normalized, Vector3.up);
-                }
-            }
+            if (PlayerView != null)
+                PlayerView.localPosition = TTCoord.Point(px, py, 0f);
 
             for (int i = 0; i < Objects.Count; i++)
             {
@@ -695,12 +666,8 @@ namespace ThermalTail
 
                 if (o.type == TTObjectType.MovingPlatform)
                 {
-                    // Keep the authored height; only the footprint slides.
                     var r = ObjectRect(o, LevelTime);
-                    var p = o.tf.position;
-                    o.tf.position = new Vector3((r.x + r.width * 0.5f) / TTCoord.PixelsPerUnit,
-                                                p.y,
-                                                -(r.y + r.height * 0.5f) / TTCoord.PixelsPerUnit);
+                    o.tf.localPosition = TTCoord.RectCenter(r.x, r.y, r.width, r.height, o.comp.ViewDepth * 0.5f);
                 }
                 else if (o.type == TTObjectType.Moth)
                 {
@@ -709,12 +676,7 @@ namespace ThermalTail
                     if (!taken)
                     {
                         float hover = Mathf.Sin(LevelTime * Tuning.MothHoverFrequency + i * Tuning.MothHoverPhasePerIndex) * Tuning.MothHoverAmplitude;
-                        // A glowmoth bobbing sideways across the floor reads as a bug on its
-                        // back; on the ground plane the same wave has to lift it instead.
-                        // Bob around wherever the designer hung it.
-                        o.tf.position = new Vector3(o.home.x,
-                                                    o.home.y + hover / TTCoord.PixelsPerUnit,
-                                                    o.home.z);
+                        o.tf.localPosition = TTCoord.RectCenter(o.x, o.y + hover, o.w, o.h, o.comp.ViewDepth * 0.5f);
                     }
                 }
                 else if (o.type == TTObjectType.ThermalGate)
@@ -733,18 +695,7 @@ namespace ThermalTail
                     if (e.tf.gameObject.activeSelf) e.tf.gameObject.SetActive(false);
                     continue;
                 }
-                e.tf.localPosition = TTCoord.RectCenter(e.x - e.w * 0.5f, e.y - e.h * 0.5f, e.w, e.h,
-                    TTCoord.IsGround ? DeckLift(e.x, e.y) + TTView.GuardRideHeight : 0.3f);
-
-                if (TTCoord.IsGround)
-                {
-                    // Face the way it is patrolling, so the player can read a warden's
-                    // attention from behind without needing the gizmo cone.
-                    var look = TTCoord.Direction(e.vx, e.vy);
-                    look.y = 0f;
-                    if (look.sqrMagnitude > 1e-4f)
-                        e.tf.localRotation = Quaternion.LookRotation(look.normalized, Vector3.up);
-                }
+                e.tf.localPosition = TTCoord.RectCenter(e.x - e.w * 0.5f, e.y - e.h * 0.5f, e.w, e.h, 0.3f);
             }
         }
     }
