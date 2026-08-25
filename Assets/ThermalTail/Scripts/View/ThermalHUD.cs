@@ -91,7 +91,7 @@ namespace ThermalTail
             r.y += 18f;
 
             GUI.Label(r, Director.ClimbMode ? "CLIMB  WASD move, SPACE mask, SHIFT strike"
-                                            : "SIDE  A/D move, W jump, S mask, SHIFT strike", _small);
+                                            : "WASD move, SPACE jump, E mask, SHIFT strike", _small);
 
             if (Director.ToastTimer > 0f && !string.IsNullOrEmpty(Director.Toast))
                 GUI.Label(new Rect(0f, Screen.height * 0.16f, Screen.width, 34f), Director.Toast, _big);

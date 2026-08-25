@@ -19,9 +19,9 @@ namespace ThermalTail
         [Tooltip("Swing the camera round the action so the boxes read as solids instead of " +
                  "flat rectangles. Zero is the original head-on framing, pixel for pixel. " +
                  "Raise it to taste - 8 to 14 shows the depth without changing what is in shot.")]
-        public float Yaw;
+        public float Yaw = 12f;
         [Tooltip("Tilt down over the action. Zero is the original framing.")]
-        public float Pitch;
+        public float Pitch = 7f;
 
         Camera _cam;
         float _fx, _fy;

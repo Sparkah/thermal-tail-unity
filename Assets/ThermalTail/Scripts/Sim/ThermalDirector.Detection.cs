@@ -657,7 +657,7 @@ namespace ThermalTail
         public void SyncView()
         {
             if (PlayerView != null)
-                PlayerView.localPosition = TTCoord.Point(px, py, 0f);
+                PlayerView.localPosition = TTCoord.Point(px, py, pz);
 
             for (int i = 0; i < Objects.Count; i++)
             {

@@ -52,11 +52,12 @@ namespace ThermalTail
             }
             else
             {
-                Up = false;
-                Down = false;
-                Match = sHeld || k.eKey.isPressed;
-                if (k.wKey.wasPressedThisFrame || k.upArrowKey.wasPressedThisFrame || k.spaceKey.wasPressedThisFrame)
-                    JumpQueued = true;
+                // W and S now steer in depth, so jump moves to Space alone and masking to E.
+                // A/D still run, exactly as before.
+                Up = wHeld;
+                Down = sHeld;
+                Match = k.eKey.isPressed;
+                if (k.spaceKey.wasPressedThisFrame) JumpQueued = true;
             }
 
             if (k.leftShiftKey.wasPressedThisFrame || k.rightShiftKey.wasPressedThisFrame)
