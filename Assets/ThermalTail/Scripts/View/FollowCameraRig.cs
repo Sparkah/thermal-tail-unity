@@ -17,10 +17,11 @@ namespace ThermalTail
 
         [Header("3D framing")]
         [Tooltip("Swing the camera round the action so the boxes read as solids instead of " +
-                 "flat rectangles. The framing and the game are unchanged; only the angle is.")]
-        public float Yaw = 10f;
-        [Tooltip("Tilt down over the action. Small values keep the original composition.")]
-        public float Pitch = 6f;
+                 "flat rectangles. Zero is the original head-on framing, pixel for pixel. " +
+                 "Raise it to taste - 8 to 14 shows the depth without changing what is in shot.")]
+        public float Yaw;
+        [Tooltip("Tilt down over the action. Zero is the original framing.")]
+        public float Pitch;
 
         Camera _cam;
         float _fx, _fy;

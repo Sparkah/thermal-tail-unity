@@ -292,7 +292,7 @@ namespace ThermalTail.EditorTools
                     m.SetFloat("_Surface", 1f);
                     m.SetFloat("_Blend", 0f);
                     m.SetFloat("_ZWrite", 0f);
-                    m.renderQueue = 3000;
+                    m.renderQueue = 3000 + (int)spec.Type;   // stable order, no frame-to-frame swapping
                     m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 }
                 m.SetColor("_BaseColor", c);
@@ -300,6 +300,35 @@ namespace ThermalTail.EditorTools
                 d[spec.Type] = m;
             }
             return d;
+        }
+
+        /// <summary>
+        /// Where each type's front face sits, so no two types share a plane. Small numbers,
+        /// front to back: the things you look at nearest the camera, volumes furthest away
+        /// so their transparency never washes over the level.
+        /// </summary>
+        static float ZFront(TTObjectType t)
+        {
+            switch (t)
+            {
+                case TTObjectType.Moth: return -0.45f;
+                case TTObjectType.Guard: return -0.30f;
+                case TTObjectType.Checkpoint: return -0.22f;
+                case TTObjectType.Thorn: return -0.14f;
+                case TTObjectType.ThermalGate: return 0.06f;
+                case TTObjectType.Platform: return 0.14f;
+                case TTObjectType.MovingPlatform: return 0.10f;
+                case TTObjectType.Camera: return 0.22f;
+                case TTObjectType.Shelter: return 0.30f;
+                case TTObjectType.CoolRock: return 0.38f;
+                case TTObjectType.WarmVent: return 0.46f;
+                case TTObjectType.SunPatch: return 0.54f;
+                case TTObjectType.IceMist: return 0.62f;
+                case TTObjectType.DryAir: return 0.70f;
+                case TTObjectType.Wind: return 0.78f;
+                case TTObjectType.AmbientZone: return 0.86f;
+                default: return 0.5f;
+            }
         }
 
         static PrimitiveType ShapeFor(TTObjectType t)
@@ -384,7 +413,12 @@ namespace ThermalTail.EditorTools
                     inst.transform.localScale = new Vector3(Mathf.Max(0.01f, rw / TTCoord.PixelsPerUnit),
                                                             Mathf.Max(0.01f, rh / TTCoord.PixelsPerUnit),
                                                             DefaultDepth(type));
-                    inst.transform.position = TTCoord.RectCenter(rx, ry, rw, rh, DefaultDepth(type) * 0.5f);
+                    // Every box used to start its front face on the same plane at z = 0.
+                    // Seen dead on that is invisible; seen at any angle, two coplanar faces
+                    // flicker against each other - the "texture inside texture" blinking.
+                    // Each type now gets its own slab of depth so nothing is ever coplanar.
+                    inst.transform.position = TTCoord.RectCenter(rx, ry, rw, rh,
+                        ZFront(type) + DefaultDepth(type) * 0.5f);
 
                     var tt = inst.AddComponent<TTPiece>();
                     tt.Type = type;
