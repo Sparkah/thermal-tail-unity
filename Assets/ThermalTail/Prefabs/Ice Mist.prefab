@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 8638180378246018883}
   - component: {fileID: 7819165059045131503}
   - component: {fileID: 8701688972583521328}
-  - component: {fileID: 3042749243683885700}
+  - component: {fileID: 7349239797383173492}
   m_Layer: 0
   m_Name: Ice Mist
   m_TagString: Untagged
@@ -113,7 +113,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &3042749243683885700
+--- !u!114 &7349239797383173492
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -122,16 +122,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 2017908053541521550}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e7a86c0b58b984e6eb3359c438b8fcad, type: 3}
+  m_Script: {fileID: 11500000, guid: cb69244b8301749edbb5d708e1d2edef, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTObject
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTPiece
   Type: 8
-  DisplayName: Ice Mist
-  SourceIndex: -1
-  SourceX: -50
-  SourceY: -50
-  SourceW: 100
-  SourceH: 100
   Value: 0
   Facing: -1
   Sweep: 1
@@ -143,4 +137,4 @@ MonoBehaviour:
   Patrol: 0
   LedgeAxis: 0
   LedgeFast: 0
-  ViewDepth: 1.4
+  SourceIndex: -1

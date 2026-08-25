@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 5880835694756896398}
   - component: {fileID: 1117594474934963998}
   - component: {fileID: 5133336615104395379}
-  - component: {fileID: 3720452353981694497}
+  - component: {fileID: 4061733285114093787}
   m_Layer: 0
   m_Name: Warden
   m_TagString: Untagged
@@ -115,7 +115,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &3720452353981694497
+--- !u!114 &4061733285114093787
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -124,16 +124,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 5464690490708422916}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e7a86c0b58b984e6eb3359c438b8fcad, type: 3}
+  m_Script: {fileID: 11500000, guid: cb69244b8301749edbb5d708e1d2edef, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTObject
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTPiece
   Type: 5
-  DisplayName: Warden
-  SourceIndex: -1
-  SourceX: -50
-  SourceY: -50
-  SourceW: 100
-  SourceH: 100
   Value: 0
   Facing: -1
   Sweep: 1
@@ -145,4 +139,4 @@ MonoBehaviour:
   Patrol: 0
   LedgeAxis: 0
   LedgeFast: 0
-  ViewDepth: 0.6
+  SourceIndex: -1

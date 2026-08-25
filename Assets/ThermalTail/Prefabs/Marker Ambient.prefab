@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 6277648793023775490}
   - component: {fileID: 5319261274915773308}
   - component: {fileID: 4964712600765560771}
-  - component: {fileID: 2549190219089966740}
+  - component: {fileID: 6643893649571347400}
   m_Layer: 0
   m_Name: Marker Ambient
   m_TagString: Untagged
@@ -113,7 +113,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &2549190219089966740
+--- !u!114 &6643893649571347400
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -122,16 +122,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 5978907259652727563}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e7a86c0b58b984e6eb3359c438b8fcad, type: 3}
+  m_Script: {fileID: 11500000, guid: cb69244b8301749edbb5d708e1d2edef, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTObject
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTPiece
   Type: 17
-  DisplayName: Marker Ambient
-  SourceIndex: -1
-  SourceX: -50
-  SourceY: -50
-  SourceW: 100
-  SourceH: 100
   Value: 0
   Facing: -1
   Sweep: 1
@@ -143,4 +137,4 @@ MonoBehaviour:
   Patrol: 0
   LedgeAxis: 0
   LedgeFast: 0
-  ViewDepth: 0.2
+  SourceIndex: -1
