@@ -132,10 +132,8 @@ namespace ThermalTail.EditorTools
             var col = go.GetComponent<Collider>();
             if (col != null) col.isTrigger = spec.Trigger;
 
-            var tt = go.AddComponent<TTObject>();
+            var tt = go.AddComponent<TTPiece>();
             tt.Type = spec.Type;
-            tt.DisplayName = spec.PrefabName;
-            tt.ViewDepth = spec.Depth;
 
             string path = PrefabDir + "/" + spec.PrefabName + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(go, path);

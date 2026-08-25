@@ -81,38 +81,6 @@ namespace ThermalTail
         /// <summary>Set once at load from ThermalDirector. Read by every placement helper and gizmo.</summary>
         public static ViewPlane Plane = ViewPlane.Ground3D;
 
-        /// <summary>
-        /// The plane the CURRENT SCENE is laid out in for authoring, which is not always the
-        /// plane the game plays in. Set from LevelSettings.LaidOutInGround, which is stored
-        /// per scene, so a drag is always read back through the same axes it was made in.
-        /// Getting this wrong rewrites authored rects with nonsense, so it is deliberately
-        /// separate from Plane rather than sharing it.
-        /// </summary>
-        public static ViewPlane AuthorPlane = ViewPlane.Flat2D;
-
-        public static bool AuthorsInGround => AuthorPlane == ViewPlane.Ground3D;
-
-        // ---- authoring placement, in whichever plane the scene is laid out ----
-
-        public static Vector3 AuthorPoint(float px, float py, float lift = 0f)
-            => AuthorsInGround
-                ? new Vector3(px / PixelsPerUnit, lift, -py / PixelsPerUnit)
-                : new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, lift);
-
-        public static Vector3 AuthorRectCenter(float x, float y, float w, float h, float lift = 0f)
-            => AuthorPoint(x + w * 0.5f, y + h * 0.5f, lift);
-
-        public static Vector3 AuthorRectScale(float w, float h, float thickness)
-            => AuthorsInGround
-                ? new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Max(0.01f, thickness), Mathf.Abs(h) / PixelsPerUnit)
-                : new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, thickness);
-
-        public static float AuthorPixelsX(Vector3 p) => p.x * PixelsPerUnit;
-        public static float AuthorPixelsY(Vector3 p) => -(AuthorsInGround ? p.z : p.y) * PixelsPerUnit;
-        public static float AuthorPixelsW(Vector3 s) => Mathf.Abs(s.x) * PixelsPerUnit;
-        public static float AuthorPixelsH(Vector3 s) => Mathf.Abs(AuthorsInGround ? s.z : s.y) * PixelsPerUnit;
-        public static float AuthorHeight(Vector3 s) => AuthorsInGround ? Mathf.Abs(s.y) : Mathf.Abs(s.z);
-
         public static bool IsGround => Plane == ViewPlane.Ground3D;
 
         /// <summary>
@@ -133,29 +101,6 @@ namespace ThermalTail
             => IsGround
                 ? new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Max(0.01f, thickness), Mathf.Abs(h) / PixelsPerUnit)
                 : new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, thickness);
-
-        // ---- authoring space ----
-        //
-        // Authoring is ALWAYS flat, whatever Plane is set to. The scene view is the
-        // authoring surface: a designer drags a rect around an elevation and TTObject reads
-        // the transform back into SourceX/SourceY. If that read followed Plane, then merely
-        // opening a scene while the ground mapping happened to be active would reinterpret
-        // every authored transform through the wrong axes and overwrite the level with
-        // nonsense. Ground3D is a presentation mapping and nothing more.
-
-        public static Vector3 FlatPoint(float px, float py, float z = 0f)
-            => new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, z);
-
-        public static Vector3 FlatRectCenter(float x, float y, float w, float h, float z = 0f)
-            => FlatPoint(x + w * 0.5f, y + h * 0.5f, z);
-
-        public static Vector3 FlatRectScale(float w, float h, float depth)
-            => new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, depth);
-
-        public static float FlatPixelsX(Vector3 localPos) => localPos.x * PixelsPerUnit;
-        public static float FlatPixelsY(Vector3 localPos) => -localPos.y * PixelsPerUnit;
-        public static float FlatPixelsW(Vector3 localScale) => Mathf.Abs(localScale.x) * PixelsPerUnit;
-        public static float FlatPixelsH(Vector3 localScale) => Mathf.Abs(localScale.y) * PixelsPerUnit;
 
         /// <summary>Unit vector the source +x axis points along in world space.</summary>
         public static Vector3 AxisX => Vector3.right;

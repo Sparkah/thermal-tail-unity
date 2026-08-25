@@ -664,10 +664,13 @@ namespace ThermalTail
             return float.IsNegativeInfinity(top) ? 0f : top / TTCoord.PixelsPerUnit;
         }
 
+
         /// <summary>Drive Unity transforms from the simulation. Presentation only.</summary>
         public void SyncView()
         {
-            if (PlayerView != null)
+            // When physics owns the lizard, writing its transform here would fight the
+            // CharacterController and stutter it back every frame.
+            if (PlayerView != null && !ExternalPlayer)
             {
                 bool ground = TTCoord.IsGround;
                 float lift = ground ? PLift / TTCoord.PixelsPerUnit + TTView.PlayerRideHeight : 0f;
@@ -692,8 +695,12 @@ namespace ThermalTail
 
                 if (o.type == TTObjectType.MovingPlatform)
                 {
+                    // Keep the authored height; only the footprint slides.
                     var r = ObjectRect(o, LevelTime);
-                    o.tf.localPosition = TTCoord.RectCenter(r.x, r.y, r.width, r.height, o.comp.ViewDepth * 0.5f);
+                    var p = o.tf.position;
+                    o.tf.position = new Vector3((r.x + r.width * 0.5f) / TTCoord.PixelsPerUnit,
+                                                p.y,
+                                                -(r.y + r.height * 0.5f) / TTCoord.PixelsPerUnit);
                 }
                 else if (o.type == TTObjectType.Moth)
                 {
@@ -704,11 +711,10 @@ namespace ThermalTail
                         float hover = Mathf.Sin(LevelTime * Tuning.MothHoverFrequency + i * Tuning.MothHoverPhasePerIndex) * Tuning.MothHoverAmplitude;
                         // A glowmoth bobbing sideways across the floor reads as a bug on its
                         // back; on the ground plane the same wave has to lift it instead.
-                        o.tf.localPosition = TTCoord.IsGround
-                            ? TTCoord.RectCenter(o.x, o.y, o.w, o.h,
-                                DeckLift(o.x + o.w * 0.5f, o.y + o.h * 0.5f)
-                                + TTView.MothFloatHeight + hover / TTCoord.PixelsPerUnit)
-                            : TTCoord.RectCenter(o.x, o.y + hover, o.w, o.h, o.comp.ViewDepth * 0.5f);
+                        // Bob around wherever the designer hung it.
+                        o.tf.position = new Vector3(o.home.x,
+                                                    o.home.y + hover / TTCoord.PixelsPerUnit,
+                                                    o.home.z);
                     }
                 }
                 else if (o.type == TTObjectType.ThermalGate)

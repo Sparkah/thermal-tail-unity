@@ -30,7 +30,11 @@ namespace ThermalTail
         public TTObjectType type;
         public float x, y, w, h, value;
         public string label;
-        public TTObject comp;
+        public TTPiece comp;
+        /// <summary>Top of the box in Unity units, straight off the transform.</summary>
+        public float topY;
+        /// <summary>Where the scene put it. Anything that animates returns to this.</summary>
+        public Vector3 home;
         public Transform tf;
         public Renderer rend;
 
@@ -100,7 +104,10 @@ namespace ThermalTail
     {
         public ThermalTuning Tuning;
         public LevelSettings Settings;
+        [Tooltip("The lizard. Where you put it in the scene is where the level starts.")]
         public Transform PlayerView;
+        [Tooltip("The exit den. Where you put it is the goal.")]
+        public Transform Den;
         public FollowCameraRig CameraRig;
 
         [Header("3D")]
@@ -109,6 +116,12 @@ namespace ThermalTail
         public bool GroundPlay = true;
         [Tooltip("Build a floor, lighting and fog at runtime so the greybox reads as a place.")]
         public bool BuildWorldDressing = true;
+        [Tooltip("The player is driven by TTPlayer and Unity physics; the simulation reads its " +
+                 "position and runs everything else - wardens, lenses, heat, moths, the den, " +
+                 "and losing. Off puts movement back inside the simulation.")]
+        public bool ExternalPlayer = true;
+        [Tooltip("Below this world height the lizard has fallen out of the level.")]
+        public float FallOutY = -6f;
 
         [Header("Debug")]
         public bool LogEvents;
@@ -150,7 +163,7 @@ namespace ThermalTail
 
         public GameMode Mode = GameMode.Playing;
         public float Grace, TransitionTimer;
-        public float CheckpointX, CheckpointY;
+        public float CheckpointX, CheckpointY, CheckpointLift;
         /// <summary>
         /// The den, after any plan-view correction. Always read this rather than
         /// Settings.Goal, which is the authored side-view position and can sit over a drop.
@@ -192,22 +205,39 @@ namespace ThermalTail
         /// ordering: the detection meters, gate states and per-lens phase offsets
         /// (index * 0.713) all key off it, so it has to be stable.
         /// </summary>
+        /// <summary>
+        /// Read the level out of the scene. Position, footprint and height all come from
+        /// each primitive's transform - there is no second copy that can disagree with it.
+        ///
+        /// Ordering still matters: detection meters, gate states and per-lens phase offsets
+        /// key off the index. SourceIndex pins it where a level cares; anything left at -1
+        /// falls in behind, ordered by name so it is at least stable between runs.
+        /// </summary>
         void GatherObjects()
         {
             Objects.Clear();
-            var found = new List<TTObject>(FindObjectsByType<TTObject>(FindObjectsSortMode.None));
-            found.Sort((a, b) => a.SourceIndex.CompareTo(b.SourceIndex));
+            var found = new List<TTPiece>(FindObjectsByType<TTPiece>(FindObjectsSortMode.None));
+            found.Sort((a, b) =>
+            {
+                int ai = a.SourceIndex < 0 ? int.MaxValue : a.SourceIndex;
+                int bi = b.SourceIndex < 0 ? int.MaxValue : b.SourceIndex;
+                return ai != bi ? ai.CompareTo(bi) : string.CompareOrdinal(a.name, b.name);
+            });
+
             for (int i = 0; i < found.Count; i++)
             {
                 var c = found[i];
+                var r = c.Footprint();
                 var o = new Obj
                 {
                     index = i,
                     type = c.Type,
-                    x = c.SourceX, y = c.SourceY, w = c.SourceW, h = c.SourceH,
-                    ax = c.SourceX, ay = c.SourceY, aw = c.SourceW, ah = c.SourceH,
+                    x = r.x, y = r.y, w = r.width, h = r.height,
+                    ax = r.x, ay = r.y, aw = r.width, ah = r.height,
+                    topY = c.TopY(),
+                    home = c.transform.position,
                     value = c.Value,
-                    label = c.DisplayName,
+                    label = c.name,
                     comp = c,
                     tf = c.transform,
                     rend = c.GetComponentInChildren<Renderer>(),
@@ -224,88 +254,6 @@ namespace ThermalTail
                 };
                 Objects.Add(o);
             }
-        }
-
-        /// <summary>
-        /// Extrude the floor plan. The authored rects say where a thing is and how much
-        /// floor it takes; ViewDepth was only ever a presentation nicety in the flat build,
-        /// so on the ground plane it becomes the standing height and the greybox turns into
-        /// geometry you can walk between. Authored values are untouched.
-        /// </summary>
-        /// <summary>
-        /// True when the authored rects are a floor plan already. Climb levels were drawn
-        /// that way; side levels are elevations, and their ledges are decking in plan view
-        /// rather than walls. Everything that has to reconcile the two readings asks here.
-        /// </summary>
-        public bool PlanAuthored => Settings != null && Settings.IsClimb;
-
-        bool CoversLevel(Obj o) =>
-            Settings != null && o.w * o.h >= Settings.Width * Settings.Height * 0.8f;
-
-        /// <summary>
-        /// Bring everything the player has to reach onto a deck.
-        ///
-        /// In the side view a glowmoth hanging in the air above a ledge was a jump you made;
-        /// read as a plan that same rect is out over the drop, unreachable however well you
-        /// play. Same for the den, a scent mark, or a vent that floated over a gap. Each one
-        /// moves to the nearest deck, keeping its authored size, so the designer's intent -
-        /// this thing belongs by that ledge - survives the change of reading.
-        ///
-        /// Only side-authored levels need it. A climb level was drawn as a plan already, and
-        /// anything placed off its walls was placed on the floor on purpose.
-        /// </summary>
-        void SnapObjectsToDecks()
-        {
-            if (!GroundPlay || PlanAuthored) return;
-
-            for (int i = 0; i < Objects.Count; i++)
-            {
-                var o = Objects[i];
-                if (o.comp != null && o.comp.IsMetadata) continue;
-                if (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform) continue;
-
-                float cx = o.x + o.w * 0.5f, cy = o.y + o.h * 0.5f;
-                if (!OverVoid(cx, cy)) continue;
-
-                SnapToSurface(ref cx, ref cy);
-                o.x = cx - o.w * 0.5f;
-                o.y = cy - o.h * 0.5f;
-            }
-
-            // The den is the one goal that is not an object, so it is moved by hand, along
-            // with the marker the importer dropped in the scene for it.
-            GoalX = Settings.Goal.x;
-            GoalY = Settings.Goal.y;
-            SnapToSurface(ref GoalX, ref GoalY);
-
-            var den = GameObject.Find("Exit Den");
-            if (den != null)
-                den.transform.position = TTCoord.Point(GoalX, GoalY, TTView.DeckHeight + 0.25f);
-        }
-
-        void ApplyStandingHeights()
-        {
-            TTObject.SuppressAuthoring = true;
-            try
-            {
-                for (int i = 0; i < Objects.Count; i++)
-                {
-                    var o = Objects[i];
-                    if (o.comp == null || o.tf == null) continue;
-                    if (o.comp.IsMetadata) { o.tf.gameObject.SetActive(false); continue; }
-                    o.comp.ViewDepth = o.comp.EffectiveHeight(PlanAuthored);
-                    o.tf.localScale = TTCoord.RectScale(o.w, o.h, o.comp.ViewDepth);
-                    o.tf.localPosition = TTCoord.RectCenter(o.x, o.y, o.w, o.h, o.comp.ViewDepth * 0.5f);
-                    o.tf.localRotation = Quaternion.identity;
-
-                    // A climate zone drawn across the whole level is just the level's base
-                    // ambient restated. Flat on the floor it would paint over every other
-                    // read in the scene, so it stays simulated and stops being drawn.
-                    if (o.rend != null && TTView.IsAirVolume(o.type))
-                        o.rend.enabled = !CoversLevel(o);
-                }
-            }
-            finally { TTObject.SuppressAuthoring = false; }
         }
 
         public void LoadLevel()
@@ -340,29 +288,39 @@ namespace ThermalTail
                 o.x = o.ax; o.y = o.ay; o.w = o.aw; o.h = o.ah;
             }
 
-            GoalX = Settings.Goal.x;
-            GoalY = Settings.Goal.y;
+            // The den is wherever the Den object sits in the scene.
+            GoalX = 0f; GoalY = 0f;
+            if (Den != null)
+            {
+                GoalX = Den.position.x * TTCoord.PixelsPerUnit;
+                GoalY = -Den.position.z * TTCoord.PixelsPerUnit;
+            }
 
             // Everything below reads the restored rects, so the plan-view corrections and
             // the greybox placement have to happen after that restore, not before it.
             if (GroundPlay)
             {
-                SnapObjectsToDecks();
-                ApplyStandingHeights();
-                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, PlanAuthored);
+                if (BuildWorldDressing && Application.isPlaying) ThermalWorld3D.Build(Settings, true);
             }
 
-            float maxX = Mathf.Max(18f, Settings.Width - 18f);
-            float sx = TTMath.Clamp(Settings.PlayerStart.x, 18f, maxX);
-            float sy = TTMath.Clamp(Settings.PlayerStart.y, -200f, Settings.Height + 100f);
+            // Spawn is wherever the lizard is sitting in the scene. Nothing corrects it,
+            // nothing snaps it, nothing falls back to a coordinate stored elsewhere. Move
+            // the object, that is where the level starts.
+            float sx = 0f, sy = 0f, startLift = 0f;
+            if (PlayerView != null)
+            {
+                var sp = PlayerView.position;
+                sx = sp.x * TTCoord.PixelsPerUnit;
+                sy = -sp.z * TTCoord.PixelsPerUnit;
+                startLift = sp.y * TTCoord.PixelsPerUnit;
+            }
             float air = AmbientAt(sx, sy);
 
-            SnapToSurface(ref sx, ref sy);
             px = sx; py = sy;
             pw = Tuning.PlayerWidth; ph = Tuning.PlayerHeight;
             pvx = pvy = 0f;
             PLiftVel = 0f;
-            PLift = GroundPlay ? Mathf.Max(0f, SurfaceTopAt(sx, sy)) : 0f;
+            PLift = GroundPlay ? startLift : 0f;
             PFacing = 1;
             PAngle = -Mathf.PI * 0.5f;
             if (GroundPlay)
@@ -384,7 +342,7 @@ namespace ThermalTail
             PFocus = 100f;
             PMatching = PMaskLocked = PHidden = false;
 
-            CheckpointX = sx; CheckpointY = sy;
+            CheckpointX = sx; CheckpointY = sy; CheckpointLift = startLift;
             ActivatedCheckpoint = -1;
             Collected.Clear();
             CameraMeters = new float[Objects.Count];
@@ -563,13 +521,11 @@ namespace ThermalTail
             // In a side-authored level the ledges lie flat as decking, so they are scenery,
             // not geometry. A closed thermal gate is a barrier in either reading and always
             // blocks - it is the one obstacle the hop is not allowed to beat.
-            bool ledgesBlock = !GroundPlay || PlanAuthored;
-
             var outList = new List<Solid>();
             for (int i = 0; i < Objects.Count; i++)
             {
                 var o = Objects[i];
-                if (ledgesBlock && (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform))
+                if (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform)
                     outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, LevelTime) });
                 else if (o.type == TTObjectType.ThermalGate && !GateOpen(o))
                     outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, LevelTime) });
@@ -735,7 +691,8 @@ namespace ThermalTail
             PFocus = TTMath.Clamp(PFocus, 0f, 100f);
 
             float pace = PaceScale();
-            if (GroundPlay) GroundMove3D(dt, pace, env);
+            if (ExternalPlayer) ReadPlayerFromWorld(dt);
+            else if (GroundPlay) GroundMove3D(dt, pace, env);
             else if (ClimbMode) ClimbMove(dt, pace, env);
             else SideMove(dt, pace, env);
 
@@ -782,19 +739,9 @@ namespace ThermalTail
                     break;
                 }
             }
-            // Falling off the world. Side play drops you down the canvas; ground play drops
-            // you between the decks, which is the same death seen from a different angle.
-            if (Mode == GameMode.Playing)
-            {
-                if (GroundPlay)
-                {
-                    if (PLift < -Tuning.FallDeathDepth) CatchPlayer("the fall");
-                }
-                else if (!ClimbMode && py > Settings.Height + Tuning.FallDeathDepth)
-                {
-                    CatchPlayer("the fall");
-                }
-            }
+            if (Mode == GameMode.Playing && !GroundPlay && !ClimbMode &&
+                py > Settings.Height + Tuning.FallDeathDepth)
+                CatchPlayer("the fall");
 
             if (Mode != GameMode.Playing) return;
             UpdateCameraDetection(dt);
@@ -965,11 +912,9 @@ namespace ThermalTail
         }
 
         /// <summary>
-        /// Ground play. Movement across the floor is climbMove unchanged - the same 8-way
-        /// acceleration, the same per-axis AABB blocking, the same heat and mask constants -
-        /// because that controller was already top-down. What is new is the third axis:
-        /// PLift carries the lizard off the floor so a hop can clear a low ledge, while a
-        /// thermal gate stands too tall to jump and still has to be opened by matching it.
+        /// Ground play. Across the floor this is climbMove unchanged - the same 8-way
+        /// acceleration, the same per-axis blocking, the same heat and mask constants -
+        /// plus a third axis so the lizard can hop onto and over things.
         /// </summary>
         void GroundMove3D(float dt, float pace, Env env)
         {
@@ -977,9 +922,7 @@ namespace ThermalTail
             float rawX = (TTInput.Right ? 1 : 0) - (TTInput.Left ? 1 : 0);
             float rawY = (TTInput.Down ? 1 : 0) - (TTInput.Up ? 1 : 0);
 
-            // Camera-relative steering, so "forward" means forward on screen when the rig is
-            // allowed to swing round behind the lizard. Fixed-yaw rigs report 0 and this is
-            // the identity.
+            // Camera-relative steering, so forward means forward on screen.
             float cos = Mathf.Cos(yaw), sin = Mathf.Sin(yaw);
             float dx = rawX * cos - rawY * sin;
             float dy = rawX * sin + rawY * cos;
@@ -1029,7 +972,7 @@ namespace ThermalTail
                 PTemp = TTMath.Clamp(PTemp + Tuning.JumpHeat, 0f, 100f);
             }
 
-            // ---- move across the plane first, so the ground test reads where we now are ----
+            // ---- move across the floor ----
             float half = Tuning.ClimbHalfExtent;
             float nx = px + pvx * dt;
             if (!GroundBlocked(nx, py, half, PLift)) px = nx; else pvx = 0f;
@@ -1039,18 +982,11 @@ namespace ThermalTail
             px = TTMath.Clamp(px, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Width - Tuning.ClimbEdgePad));
             py = TTMath.Clamp(py, Tuning.ClimbEdgePad, Mathf.Max(Tuning.ClimbEdgePad, Settings.Height - Tuning.ClimbEdgePad));
 
-            // ---- then gravity, and land only from above ----
+            // ---- then gravity, and land on whatever is under you ----
             float floor = SurfaceTopAt(px, py);
-            float wasAt = PLift;
             PLiftVel = Mathf.Max(-Tuning.TerminalFall, PLiftVel - Tuning.Gravity * dt);
             PLift += PLiftVel * dt;
-
-            // Negative infinity is open air, so the test below is false there and the fall
-            // continues. The `wasAt` condition is what makes a gap lethal rather than
-            // forgiving: drop past a deck's top and you cannot pop back up through it, you
-            // can only come down onto one from above. Walking off an edge is a fall; the
-            // way across is the hop, with coyote time to leave late.
-            if (!float.IsNegativeInfinity(floor) && PLift <= floor && wasAt >= floor - 0.01f)
+            if (PLift <= floor)
             {
                 PLift = floor;
                 PLiftVel = 0f;
@@ -1071,62 +1007,91 @@ namespace ThermalTail
         }
 
         /// <summary>
-        /// Ground-play blocking. Same AABB sweep as ClimbBlocked, except a solid you are
-        /// currently hopping over stops counting. The clearance factor is deliberately under
-        /// 1 so clearing a ledge means arcing over it rather than grazing the exact top.
-        /// </summary>
-        /// <summary>
-        /// Height of the ground under a point, in source pixels, or negative infinity where
-        /// there is nothing to stand on.
+        /// Take the lizard's position from the scene rather than computing it.
         ///
-        /// A plan-authored level is a solid floor with walls on it, so the answer is always
-        /// zero. A side-authored level is a set of decks over open air: you stand on a deck
-        /// or you are falling. The test is the lizard's centre rather than its whole square,
-        /// so walking off an edge drops you instead of leaving you hovering.
+        /// Movement, gravity and standing on things are the CharacterController's job now.
+        /// The simulation still needs to know where the lizard is, how fast it is going and
+        /// whether it is off the ground, because detection, heat and the wardens all read
+        /// those - so they are measured off the transform once a step instead.
         /// </summary>
+        void ReadPlayerFromWorld(float dt)
+        {
+            if (PlayerView == null) return;
+
+            var p = PlayerView.position;
+            float nx = p.x * TTCoord.PixelsPerUnit;
+            float ny = -p.z * TTCoord.PixelsPerUnit;
+
+            if (dt > 0.0001f)
+            {
+                pvx = (nx - px) / dt;
+                pvy = (ny - py) / dt;
+            }
+            px = nx; py = ny;
+            PLift = p.y * TTCoord.PixelsPerUnit;
+
+            float sp = TTMath.Hypot(pvx, pvy);
+            PTemp = TTMath.Clamp(PTemp + sp / Tuning.ClimbHeatDivisor * Tuning.ClimbHeatScale * dt, 0f, 100f);
+            if (sp > 10f) PAngle = Mathf.Atan2(pvy, pvx);
+            PFacing = pvx >= 0f ? 1 : -1;
+            PGrounded = true;
+            PGroundIndex = -1;
+
+            // Gates still open and close on temperature even though nothing here moves them.
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o.type != TTObjectType.ThermalGate) continue;
+                bool open = GateOpen(o);
+                GateStates[i] = open;
+                if (o.rend != null) o.rend.enabled = !open;
+                var col = o.comp != null ? o.comp.GetComponent<Collider>() : null;
+                if (col != null) col.enabled = !open;
+            }
+
+            // Falling out of the world ignores spawn protection. Grace exists so a warden
+            // cannot take you the instant a level loads; it should not mean you drop through
+            // the floor for three seconds and keep going forever.
+            if (p.y < FallOutY && Mode == GameMode.Playing)
+            {
+                Grace = 0f;
+                CatchPlayer("the fall");
+            }
+        }
+
+        /// <summary>
+        /// Teleport the real object. A CharacterController refuses a straight position write,
+        /// so it is switched off for the move and back on after.
+        /// </summary>
+        public void PlacePlayerObject()
+        {
+            if (PlayerView == null) return;
+            var cc = PlayerView.GetComponent<CharacterController>();
+            if (cc != null) cc.enabled = false;
+            PlayerView.position = new Vector3(px / TTCoord.PixelsPerUnit,
+                                              Mathf.Max(0.2f, PLift / TTCoord.PixelsPerUnit),
+                                              -py / TTCoord.PixelsPerUnit);
+            if (cc != null) cc.enabled = true;
+        }
+
+        /// <summary>Height of the ground under a point, in source pixels. Never below zero.</summary>
         public float SurfaceTopAt(float x, float y)
         {
-            if (!GroundPlay || PlanAuthored) return 0f;
+            if (!GroundPlay) return 0f;
 
-            float top = float.NegativeInfinity;
+            // The world has a floor at zero, always. Platforms raise you above it. There is
+            // no such thing as a hole, so there is nothing to fall through and nothing that
+            // needs correcting at spawn - which is three separate things that kept breaking.
+            float top = 0f;
             for (int i = 0; i < Objects.Count; i++)
             {
                 var o = Objects[i];
                 if (o.type != TTObjectType.Platform && o.type != TTObjectType.MovingPlatform) continue;
                 var r = ObjectRect(o, LevelTime);
                 if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
-                    top = Mathf.Max(top, TTView.DeckTopPixels);
+                    top = Mathf.Max(top, o.topY * TTCoord.PixelsPerUnit);
             }
             return top;
-        }
-
-        /// <summary>True where the lizard would have nothing under it at all.</summary>
-        public bool OverVoid(float x, float y) => float.IsNegativeInfinity(SurfaceTopAt(x, y));
-
-        /// <summary>
-        /// Pull a spawn or checkpoint onto the nearest deck. The authored starts sit just
-        /// clear of the shelf the lizard used to be standing on, which was right in a side
-        /// view and is a hole in plan - without this, every side level opens by falling.
-        /// </summary>
-        void SnapToSurface(ref float x, ref float y)
-        {
-            if (!GroundPlay || PlanAuthored || !OverVoid(x, y)) return;
-
-            float inset = Tuning.ClimbHalfExtent + 4f;
-            float best = float.MaxValue, bx = x, by = y;
-            for (int i = 0; i < Objects.Count; i++)
-            {
-                var o = Objects[i];
-                if (o.type != TTObjectType.Platform && o.type != TTObjectType.MovingPlatform) continue;
-                var r = ObjectRect(o, LevelTime);
-                if (r.width < inset * 2f || r.height < inset * 2f) continue;
-
-                float cx = Mathf.Clamp(x, r.x + inset, r.x + r.width - inset);
-                float cy = Mathf.Clamp(y, r.y + inset, r.y + r.height - inset);
-                float d = TTMath.Hypot(cx - x, cy - y);
-                if (d < best) { best = d; bx = cx; by = cy; }
-            }
-            if (best < float.MaxValue) { x = bx; y = by; }
         }
 
         bool GroundBlocked(float x, float y, float half, float lift)
@@ -1138,15 +1103,13 @@ namespace ThermalTail
                 if (x + half <= r.x || x - half >= r.x + r.width ||
                     y + half <= r.y || y - half >= r.y + r.height) continue;
 
-                // Every overlap gets tested, not just the first: hopping a low ledge must
-                // not smuggle you through a gate that happens to overlap the same square.
-                float topPixels = TTView.StandingHeight(list[i].type, PlanAuthored) * TTCoord.PixelsPerUnit;
-                if (list[i].index >= 0 && list[i].index < Objects.Count)
-                {
-                    var oc = Objects[list[i].index].comp;
-                    if (oc != null) topPixels = oc.EffectiveHeight(PlanAuthored) * TTCoord.PixelsPerUnit;
-                }
-                if (lift < topPixels * 0.85f) return true;
+                // You are stopped by anything whose top is meaningfully above your feet.
+                // Below that it is a step you walk up, and while you are above it - mid hop,
+                // or already standing on it - it is floor, not wall.
+                float topPixels = float.NegativeInfinity;
+                int idx = list[i].index;
+                if (idx >= 0 && idx < Objects.Count) topPixels = Objects[idx].topY * TTCoord.PixelsPerUnit;
+                if (lift + Tuning.StepUpPixels < topPixels) return true;
             }
             return false;
         }
@@ -1186,11 +1149,11 @@ namespace ThermalTail
                 return;
             }
             float rx = CheckpointX, ry = CheckpointY;
-            SnapToSurface(ref rx, ref ry);
             px = rx; py = ry;
             pvx = pvy = 0f;
             PLiftVel = 0f;
-            PLift = GroundPlay ? Mathf.Max(0f, SurfaceTopAt(rx, ry)) : 0f;
+            PLift = GroundPlay ? CheckpointLift : 0f;
+            PlacePlayerObject();
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
             PGroundIndex = -1;

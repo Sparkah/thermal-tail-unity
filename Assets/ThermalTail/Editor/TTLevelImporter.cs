@@ -200,7 +200,7 @@ namespace ThermalTail.EditorTools
         /// Transcription of the substring matching in cameraInfo(), climbCameraInfo(),
         /// buildEnemies() and objectRect(). Run once, at import, so the flags stop being fragile.
         /// </summary>
-        public static void DecodeLabel(TTObject t, string rawLabel)
+        public static void DecodeLabel(TTPiece t, string rawLabel)
         {
             string label = (rawLabel ?? "").ToLowerInvariant();
             bool fast = label.Contains("fast");
@@ -261,6 +261,71 @@ namespace ThermalTail.EditorTools
             return false;
         }
 
+        /// <summary>
+        /// Put a marker on top of the nearest platform. The authored spawn and den are side
+        /// view coordinates: read as a floor plan they often land in a gap, and a lizard
+        /// that spawns in a gap falls out of the level before the player touches anything.
+        /// </summary>
+        static Vector3 OnNearestDeck(GameObject objectsRoot, Vector2 source, float clearance)
+        {
+            Vector3 want = TTCoord.Point(source.x, source.y);
+            var decks = objectsRoot.GetComponentsInChildren<TTPiece>();
+
+            float best = float.MaxValue;
+            Vector3 chosen = new Vector3(want.x, clearance, want.z);
+            foreach (var d in decks)
+            {
+                if (d.Type != TTObjectType.Platform && d.Type != TTObjectType.MovingPlatform) continue;
+                var p = d.transform.position;
+                var s = d.transform.lossyScale;
+                float hx = Mathf.Abs(s.x) * 0.5f, hz = Mathf.Abs(s.z) * 0.5f;
+                var on = new Vector3(Mathf.Clamp(want.x, p.x - hx, p.x + hx),
+                                     d.TopY() + clearance,
+                                     Mathf.Clamp(want.z, p.z - hz, p.z + hz));
+                float dist = Vector2.Distance(new Vector2(want.x, want.z), new Vector2(on.x, on.z));
+                if (dist < best) { best = dist; chosen = on; }
+            }
+            return chosen;
+        }
+
+        /// <summary>How tall each kind of thing starts out. Drag the cube to change it.</summary>
+        static float DefaultHeight(TTObjectType t)
+        {
+            switch (t)
+            {
+                case TTObjectType.Platform: return 0.5f;
+                case TTObjectType.MovingPlatform: return 0.5f;
+                case TTObjectType.ThermalGate: return 1.9f;
+                case TTObjectType.Shelter: return 0.85f;
+                case TTObjectType.CoolRock: return 0.55f;
+                case TTObjectType.WarmVent: return 0.22f;
+                case TTObjectType.SunPatch: return 0.05f;
+                case TTObjectType.IceMist:
+                case TTObjectType.DryAir:
+                case TTObjectType.Wind: return 1.25f;
+                case TTObjectType.AmbientZone: return 0.04f;
+                case TTObjectType.Thorn: return 0.45f;
+                case TTObjectType.Moth: return 0.18f;
+                case TTObjectType.Camera: return 2.1f;
+                case TTObjectType.Guard: return 0.95f;
+                case TTObjectType.Checkpoint: return 0.3f;
+                default: return 0.5f;
+            }
+        }
+
+        static Dictionary<TTObjectType, Material> LoadMaterials()
+        {
+            var d = new Dictionary<TTObjectType, Material>();
+            foreach (var g in AssetDatabase.FindAssets("t:Material", new[] { "Assets/ThermalTail/Materials" }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g));
+                if (m == null) continue;
+                var key = ParseType(m.name.Replace("_", "").Replace(" ", ""));
+                if (key != TTObjectType.Unknown && !d.ContainsKey(key)) d[key] = m;
+            }
+            return d;
+        }
+
         static string BuildScene(JLevel level, int index, Dictionary<TTObjectType, GameObject> prefabs)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -312,6 +377,7 @@ namespace ThermalTail.EditorTools
 
             // ---- objects ----
             var parent = new GameObject("Objects");
+            var mats = LoadMaterials();
             int created = 0, unknown = 0;
             if (level.objects != null)
             {
@@ -320,43 +386,50 @@ namespace ThermalTail.EditorTools
                     var o = level.objects[i];
                     if (o == null) continue;
                     var type = ParseType(o.type);
-                    GameObject prefab;
-                    if (!prefabs.TryGetValue(type, out prefab) || prefab == null)
-                    {
-                        unknown++;
-                        prefab = prefabs.ContainsKey(TTObjectType.Platform) ? prefabs[TTObjectType.Platform] : null;
-                        if (prefab == null) continue;
-                    }
+                    if (type == TTObjectType.Unknown) unknown++;
 
-                    var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent.transform);
-                    var tt = inst.GetComponent<TTObject>();
+                    float rx = o.x, ry = o.y, rw = o.w, rh = o.h;
+                    if (rw < 0) { rx += rw; rw = -rw; }
+                    if (rh < 0) { ry += rh; rh = -rh; }
+
+                    var inst = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    inst.transform.SetParent(parent.transform, false);
+                    UnityEngine.Object.DestroyImmediate(inst.GetComponent<Collider>());
+
+                    float height = DefaultHeight(type);
+                    inst.transform.localScale = new Vector3(Mathf.Max(0.01f, rw / TTCoord.PixelsPerUnit),
+                                                           height,
+                                                           Mathf.Max(0.01f, rh / TTCoord.PixelsPerUnit));
+                    inst.transform.position = new Vector3((rx + rw * 0.5f) / TTCoord.PixelsPerUnit,
+                                                          height * 0.5f,
+                                                          -(ry + rh * 0.5f) / TTCoord.PixelsPerUnit);
+
+                    var tt = inst.AddComponent<TTPiece>();
                     tt.Type = type;
                     tt.SourceIndex = i;
-                    tt.SourceX = o.x; tt.SourceY = o.y; tt.SourceW = o.w; tt.SourceH = o.h;
                     tt.Value = o.value;
-                    tt.DisplayName = o.label ?? "";
                     DecodeLabel(tt, o.label);
-                    tt.SyncToTransform();
+                    if (mats.TryGetValue(type, out var m) && m != null)
+                        inst.GetComponent<Renderer>().sharedMaterial = m;
                     inst.name = string.Format("{0:000} {1} [{2}]", i, string.IsNullOrEmpty(o.label) ? o.type : o.label, o.type);
                     created++;
                 }
             }
 
             // ---- player, goal ----
-            var lizardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TTPrefabBuilder.PrefabDir + "/Lizard.prefab");
-            var lizard = lizardPrefab != null
-                ? (GameObject)PrefabUtility.InstantiatePrefab(lizardPrefab)
-                : GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var lizard = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             lizard.name = "Lizard";
-            lizard.transform.position = TTCoord.Point(settings.PlayerStart.x, settings.PlayerStart.y);
+            UnityEngine.Object.DestroyImmediate(lizard.GetComponent<Collider>());
+            lizard.transform.localScale = new Vector3(0.5f, 0.32f, 0.5f);
+            lizard.transform.position = OnNearestDeck(parent, settings.PlayerStart, 0.24f);
 
-            var goalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TTPrefabBuilder.PrefabDir + "/Exit Den.prefab");
-            if (goalPrefab != null)
-            {
-                var goal = (GameObject)PrefabUtility.InstantiatePrefab(goalPrefab);
-                goal.name = "Exit Den";
-                goal.transform.position = TTCoord.Point(settings.Goal.x, settings.Goal.y, 0.5f);
-            }
+
+            var goal = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            goal.name = "Exit Den";
+            UnityEngine.Object.DestroyImmediate(goal.GetComponent<Collider>());
+            goal.transform.localScale = new Vector3(0.9f, 0.7f, 0.9f);
+            goal.transform.position = OnNearestDeck(parent, settings.Goal, 0.35f);
+
 
             // ---- camera ----
             var camGo = new GameObject("Main Camera");
@@ -375,6 +448,7 @@ namespace ThermalTail.EditorTools
             director.Tuning = tuning;
             director.Settings = settings;
             director.PlayerView = lizard.transform;
+            director.Den = goal.transform;
             director.CameraRig = rig;
             rig.Director = director;
             var tint = lizard.GetComponent<ThermalTint>();
