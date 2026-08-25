@@ -184,6 +184,9 @@ namespace ThermalTail
             if (Settings == null)
                 Settings = FindFirstObjectByType<LevelSettings>();
             if (!TTSession.Initialised) TTSession.ResetRun(Tuning);
+            // Which plane the level lies in has to be known BEFORE the pieces are read, or
+            // every rect comes off the transform through the wrong pair of axes.
+            if (Settings != null) TTCoord.Flat = Settings.LiesFlat;
             GatherObjects();
             LoadLevel();
         }
@@ -245,7 +248,9 @@ namespace ThermalTail
                 return;
             }
 
-            ClimbMode = Settings.IsClimb;
+            TTCoord.Flat = Settings.LiesFlat;
+            // A floor plan is played with the climb controller: 8-way, no gravity.
+            ClimbMode = Settings.IsClimb || Settings.LiesFlat;
             LevelTime = 0f;
             BaseAmbient = TTMath.Clamp(Settings.Ambient, 0f, 100f);
 

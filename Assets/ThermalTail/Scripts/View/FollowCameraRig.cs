@@ -78,8 +78,13 @@ namespace ThermalTail
             // level stays in shot - it is just no longer seen dead on.
             float dist = climb ? ClimbDistance : SideDistance;
             Vector3 focus = TTCoord.Point(cx, cy, 0f);
-            Quaternion swing = Quaternion.Euler(Pitch, -Yaw, 0f);
-            transform.position = focus + swing * new Vector3(0f, 0f, -dist);
+
+            // On a floor plan the level lies in the ground, so the rig looks down into it and
+            // sits back along -Z; on an elevation it stays in front and only swings a little.
+            Quaternion swing = TTCoord.Flat
+                ? Quaternion.Euler(Mathf.Clamp(Pitch, 20f, 85f), Yaw, 0f)
+                : Quaternion.Euler(Pitch, -Yaw, 0f);
+            transform.position = focus - swing * Vector3.forward * dist;
             transform.rotation = swing;
             if (_cam != null) _cam.fieldOfView = climb ? ClimbFov : SideFov;
         }

@@ -63,16 +63,28 @@ namespace ThermalTail
     {
         public const float PixelsPerUnit = 100f;
 
+        /// <summary>
+        /// True while the open level is a floor plan rather than a side elevation - a room
+        /// seen from above, like Pit's lobby. Set from LevelSettings.LiesFlat at load.
+        ///
+        /// This is presentation only. The simulation runs on the same (x, y) source pixels
+        /// either way; a flat level is simply a climb level whose plane is the floor instead
+        /// of a wall, and climb mode was always a top-down controller.
+        /// </summary>
+        public static bool Flat;
+
         /// <summary>Canvas y grows down, Unity y grows up.</summary>
         public static Vector3 Point(float px, float py, float z = 0f)
-            => new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, z);
+            => Flat ? new Vector3(px / PixelsPerUnit, z, -py / PixelsPerUnit)
+                    : new Vector3(px / PixelsPerUnit, -py / PixelsPerUnit, z);
 
         /// <summary>Top-left anchored source rect to a centred Unity position.</summary>
         public static Vector3 RectCenter(float x, float y, float w, float h, float z = 0f)
-            => new Vector3((x + w * 0.5f) / PixelsPerUnit, -(y + h * 0.5f) / PixelsPerUnit, z);
+            => Point(x + w * 0.5f, y + h * 0.5f, z);
 
         public static Vector3 RectScale(float w, float h, float depth)
-            => new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, depth);
+            => Flat ? new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Max(0.02f, depth), Mathf.Abs(h) / PixelsPerUnit)
+                    : new Vector3(Mathf.Abs(w) / PixelsPerUnit, Mathf.Abs(h) / PixelsPerUnit, depth);
 
         public static float ToPixelsX(float unityX) => unityX * PixelsPerUnit;
         public static float ToPixelsY(float unityY) => -unityY * PixelsPerUnit;

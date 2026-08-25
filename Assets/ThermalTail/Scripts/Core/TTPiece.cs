@@ -91,17 +91,21 @@ namespace ThermalTail
         /// </summary>
         public Rect Footprint()
         {
+            // Resolve the plane from the level itself rather than trusting whoever called
+            // first to have set it. Getting this wrong silently rewrites the whole level.
+            var ls = FindFirstObjectByType<LevelSettings>();
+            if (ls != null) TTCoord.Flat = ls.LiesFlat;
+
             var p = transform.position;
             var s = transform.lossyScale;
             float w = Mathf.Abs(s.x) * TTCoord.PixelsPerUnit;
-            float h = Mathf.Abs(s.y) * TTCoord.PixelsPerUnit;
-            return new Rect(p.x * TTCoord.PixelsPerUnit - w * 0.5f,
-                            -p.y * TTCoord.PixelsPerUnit - h * 0.5f,
-                            w, h);
+            float h = Mathf.Abs(TTCoord.Flat ? s.z : s.y) * TTCoord.PixelsPerUnit;
+            float along = (TTCoord.Flat ? -p.z : -p.y) * TTCoord.PixelsPerUnit;
+            return new Rect(p.x * TTCoord.PixelsPerUnit - w * 0.5f, along - h * 0.5f, w, h);
         }
 
         /// <summary>How far the box sticks out toward the camera. Presentation only.</summary>
-        public float ViewDepth => Mathf.Abs(transform.lossyScale.z);
+        public float ViewDepth => Mathf.Abs(TTCoord.Flat ? transform.lossyScale.y : transform.lossyScale.z);
 
         void OnDrawGizmosSelected()
         {
