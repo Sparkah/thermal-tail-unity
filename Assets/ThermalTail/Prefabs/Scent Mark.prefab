@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 5374048969685987523}
   - component: {fileID: 5776681939912511875}
   - component: {fileID: 3004904234161689703}
-  - component: {fileID: 272301411465857242}
+  - component: {fileID: 8234648594416624838}
   m_Layer: 0
   m_Name: Scent Mark
   m_TagString: Untagged
@@ -113,7 +113,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &272301411465857242
+--- !u!114 &8234648594416624838
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -122,10 +122,16 @@ MonoBehaviour:
   m_GameObject: {fileID: 6885755844959450703}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cb69244b8301749edbb5d708e1d2edef, type: 3}
+  m_Script: {fileID: 11500000, guid: e7a86c0b58b984e6eb3359c438b8fcad, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTPiece
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTObject
   Type: 12
+  DisplayName: Scent Mark
+  SourceIndex: -1
+  SourceX: -50
+  SourceY: -50
+  SourceW: 100
+  SourceH: 100
   Value: 0
   Facing: -1
   Sweep: 1
@@ -137,4 +143,4 @@ MonoBehaviour:
   Patrol: 0
   LedgeAxis: 0
   LedgeFast: 0
-  SourceIndex: -1
+  ViewDepth: 0.8

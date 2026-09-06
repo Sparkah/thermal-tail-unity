@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 2387671126383672956}
   - component: {fileID: 1071667852953715010}
   - component: {fileID: 5198512629355145495}
-  - component: {fileID: 961567863278676483}
+  - component: {fileID: 9048446899169729890}
   m_Layer: 0
   m_Name: Blind Spot
   m_TagString: Untagged
@@ -113,7 +113,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &961567863278676483
+--- !u!114 &9048446899169729890
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -122,10 +122,16 @@ MonoBehaviour:
   m_GameObject: {fileID: 8033193480567624020}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cb69244b8301749edbb5d708e1d2edef, type: 3}
+  m_Script: {fileID: 11500000, guid: e7a86c0b58b984e6eb3359c438b8fcad, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTPiece
+  m_EditorClassIdentifier: Assembly-CSharp::ThermalTail.TTObject
   Type: 6
+  DisplayName: Blind Spot
+  SourceIndex: -1
+  SourceX: -50
+  SourceY: -50
+  SourceW: 100
+  SourceH: 100
   Value: 0
   Facing: -1
   Sweep: 1
@@ -137,4 +143,4 @@ MonoBehaviour:
   Patrol: 0
   LedgeAxis: 0
   LedgeFast: 0
-  SourceIndex: -1
+  ViewDepth: 2

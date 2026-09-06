@@ -200,7 +200,7 @@ namespace ThermalTail.EditorTools
         /// Transcription of the substring matching in cameraInfo(), climbCameraInfo(),
         /// buildEnemies() and objectRect(). Run once, at import, so the flags stop being fragile.
         /// </summary>
-        public static void DecodeLabel(TTPiece t, string rawLabel)
+        public static void DecodeLabel(TTObject t, string rawLabel)
         {
             string label = (rawLabel ?? "").ToLowerInvariant();
             bool fast = label.Contains("fast");
@@ -261,83 +261,6 @@ namespace ThermalTail.EditorTools
             return false;
         }
 
-        /// <summary>How deep each kind of box is. Presentation only; scale Z to change it.</summary>
-        static float DefaultDepth(TTObjectType t)
-        {
-            foreach (var spec in TTPrefabBuilder.Specs)
-                if (spec.Type == t) return Mathf.Max(0.05f, spec.Depth);
-            return 1f;
-        }
-
-        /// <summary>
-        /// One material per object type, taken from the same spec table the old prefabs were
-        /// generated from. Volumes render translucent so a climate zone the size of the level
-        /// does not paint over everything behind it - which is what an opaque one did.
-        /// </summary>
-        static Dictionary<TTObjectType, Material> SpecMaterials()
-        {
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            var d = new Dictionary<TTObjectType, Material>();
-            if (shader == null) return d;
-
-            foreach (var spec in TTPrefabBuilder.Specs)
-            {
-                if (d.ContainsKey(spec.Type)) continue;
-                var m = new Material(shader);
-                var c = spec.Colour;
-                bool volume = spec.Trigger && spec.Type != TTObjectType.Moth && spec.Type != TTObjectType.Guard;
-                if (volume)
-                {
-                    c.a = 0.28f;
-                    m.SetFloat("_Surface", 1f);
-                    m.SetFloat("_Blend", 0f);
-                    m.SetFloat("_ZWrite", 0f);
-                    m.renderQueue = 3000 + (int)spec.Type;   // stable order, no frame-to-frame swapping
-                    m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-                }
-                m.SetColor("_BaseColor", c);
-                m.SetColor("_Color", c);
-                d[spec.Type] = m;
-            }
-            return d;
-        }
-
-        /// <summary>
-        /// Where each type's front face sits, so no two types share a plane. Small numbers,
-        /// front to back: the things you look at nearest the camera, volumes furthest away
-        /// so their transparency never washes over the level.
-        /// </summary>
-        static float ZFront(TTObjectType t)
-        {
-            switch (t)
-            {
-                case TTObjectType.Moth: return -0.45f;
-                case TTObjectType.Guard: return -0.30f;
-                case TTObjectType.Checkpoint: return -0.22f;
-                case TTObjectType.Thorn: return -0.14f;
-                case TTObjectType.ThermalGate: return 0.06f;
-                case TTObjectType.Platform: return 0.14f;
-                case TTObjectType.MovingPlatform: return 0.10f;
-                case TTObjectType.Camera: return 0.22f;
-                case TTObjectType.Shelter: return 0.30f;
-                case TTObjectType.CoolRock: return 0.38f;
-                case TTObjectType.WarmVent: return 0.46f;
-                case TTObjectType.SunPatch: return 0.54f;
-                case TTObjectType.IceMist: return 0.62f;
-                case TTObjectType.DryAir: return 0.70f;
-                case TTObjectType.Wind: return 0.78f;
-                case TTObjectType.AmbientZone: return 0.86f;
-                default: return 0.5f;
-            }
-        }
-
-        static PrimitiveType ShapeFor(TTObjectType t)
-        {
-            foreach (var spec in TTPrefabBuilder.Specs)
-                if (spec.Type == t) return spec.Primitive;
-            return PrimitiveType.Cube;
-        }
-
         static string BuildScene(JLevel level, int index, Dictionary<TTObjectType, GameObject> prefabs)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -389,7 +312,6 @@ namespace ThermalTail.EditorTools
 
             // ---- objects ----
             var parent = new GameObject("Objects");
-            var mats = SpecMaterials();
             int created = 0, unknown = 0;
             if (level.objects != null)
             {
@@ -398,54 +320,43 @@ namespace ThermalTail.EditorTools
                     var o = level.objects[i];
                     if (o == null) continue;
                     var type = ParseType(o.type);
-                    if (type == TTObjectType.Unknown) unknown++;
+                    GameObject prefab;
+                    if (!prefabs.TryGetValue(type, out prefab) || prefab == null)
+                    {
+                        unknown++;
+                        prefab = prefabs.ContainsKey(TTObjectType.Platform) ? prefabs[TTObjectType.Platform] : null;
+                        if (prefab == null) continue;
+                    }
 
-                    float rx = o.x, ry = o.y, rw = o.w, rh = o.h;
-                    if (rw < 0) { rx += rw; rw = -rw; }
-                    if (rh < 0) { ry += rh; rh = -rh; }
-
-                    var inst = GameObject.CreatePrimitive(ShapeFor(type));
-                    inst.transform.SetParent(parent.transform, false);
-                    UnityEngine.Object.DestroyImmediate(inst.GetComponent<Collider>());
-
-                    // Side elevation, exactly as the original: the rect is the box, and the
-                    // only new axis is depth toward the camera, which nothing simulates.
-                    inst.transform.localScale = new Vector3(Mathf.Max(0.01f, rw / TTCoord.PixelsPerUnit),
-                                                            Mathf.Max(0.01f, rh / TTCoord.PixelsPerUnit),
-                                                            DefaultDepth(type));
-                    // Every box used to start its front face on the same plane at z = 0.
-                    // Seen dead on that is invisible; seen at any angle, two coplanar faces
-                    // flicker against each other - the "texture inside texture" blinking.
-                    // Each type now gets its own slab of depth so nothing is ever coplanar.
-                    inst.transform.position = TTCoord.RectCenter(rx, ry, rw, rh,
-                        ZFront(type) + DefaultDepth(type) * 0.5f);
-
-                    var tt = inst.AddComponent<TTPiece>();
+                    var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent.transform);
+                    var tt = inst.GetComponent<TTObject>();
                     tt.Type = type;
                     tt.SourceIndex = i;
+                    tt.SourceX = o.x; tt.SourceY = o.y; tt.SourceW = o.w; tt.SourceH = o.h;
                     tt.Value = o.value;
+                    tt.DisplayName = o.label ?? "";
                     DecodeLabel(tt, o.label);
-                    if (mats.TryGetValue(type, out var m) && m != null)
-                        inst.GetComponent<Renderer>().sharedMaterial = m;
+                    tt.SyncToTransform();
                     inst.name = string.Format("{0:000} {1} [{2}]", i, string.IsNullOrEmpty(o.label) ? o.type : o.label, o.type);
                     created++;
                 }
             }
 
             // ---- player, goal ----
-            var lizard = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var lizardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TTPrefabBuilder.PrefabDir + "/Lizard.prefab");
+            var lizard = lizardPrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(lizardPrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Capsule);
             lizard.name = "Lizard";
-            UnityEngine.Object.DestroyImmediate(lizard.GetComponent<Collider>());
-            lizard.transform.localScale = new Vector3(0.5f, 0.32f, 0.5f);
             lizard.transform.position = TTCoord.Point(settings.PlayerStart.x, settings.PlayerStart.y);
 
-
-            var goal = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            goal.name = "Exit Den";
-            UnityEngine.Object.DestroyImmediate(goal.GetComponent<Collider>());
-            goal.transform.localScale = new Vector3(0.9f, 0.7f, 0.9f);
-            goal.transform.position = TTCoord.Point(settings.Goal.x, settings.Goal.y, 0.5f);
-
+            var goalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TTPrefabBuilder.PrefabDir + "/Exit Den.prefab");
+            if (goalPrefab != null)
+            {
+                var goal = (GameObject)PrefabUtility.InstantiatePrefab(goalPrefab);
+                goal.name = "Exit Den";
+                goal.transform.position = TTCoord.Point(settings.Goal.x, settings.Goal.y, 0.5f);
+            }
 
             // ---- camera ----
             var camGo = new GameObject("Main Camera");

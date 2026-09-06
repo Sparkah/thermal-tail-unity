@@ -30,9 +30,7 @@ namespace ThermalTail
         public TTObjectType type;
         public float x, y, w, h, value;
         public string label;
-        public TTPiece comp;
-        /// <summary>The slab of depth this box occupies, in Unity units, from the transform.</summary>
-        public float zFront, zBack;
+        public TTObject comp;
         public Transform tf;
         public Renderer rend;
 
@@ -91,7 +89,6 @@ namespace ThermalTail
         public int index;
         public TTObjectType type;
         public Rect rect;
-        public float zFront, zBack;
     }
 
     /// <summary>
@@ -105,16 +102,6 @@ namespace ThermalTail
         public LevelSettings Settings;
         public Transform PlayerView;
         public FollowCameraRig CameraRig;
-
-        [Header("Depth movement")]
-        [Tooltip("Let the lizard move toward and away from the camera as well as along the level.")]
-        public bool DepthMovement = true;
-        [Tooltip("How far forward and back it can go, in Unity units either side of the play plane.")]
-        public float DepthRange = 1.6f;
-        [Tooltip("How fast it moves in depth, as a fraction of its running speed.")]
-        public float DepthSpeedFactor = 0.75f;
-        [Tooltip("Half the lizard's own thickness, for deciding what it is lined up with.")]
-        public float DepthHalfExtent = 0.28f;
 
         [Header("Debug")]
         public bool LogEvents;
@@ -130,12 +117,6 @@ namespace ThermalTail
 
         // ---- player ----
         public float px, py, pw = 72f, ph = 48f, pvx, pvy;
-        /// <summary>
-        /// Depth, in Unity units, and its velocity. The original ran on a single plane; this
-        /// is the axis that lets you step behind a ledge instead of only along it. The rest
-        /// of the simulation is untouched by it - only what you collide with is.
-        /// </summary>
-        public float pz, pvz;
         public int PFacing = 1;
         public float PAngle = -Mathf.PI * 0.5f;
         public bool PGrounded;
@@ -184,9 +165,6 @@ namespace ThermalTail
             if (Settings == null)
                 Settings = FindFirstObjectByType<LevelSettings>();
             if (!TTSession.Initialised) TTSession.ResetRun(Tuning);
-            // Which plane the level lies in has to be known BEFORE the pieces are read, or
-            // every rect comes off the transform through the wrong pair of axes.
-            if (Settings != null) TTCoord.Flat = Settings.LiesFlat;
             GatherObjects();
             LoadLevel();
         }
@@ -199,29 +177,20 @@ namespace ThermalTail
         void GatherObjects()
         {
             Objects.Clear();
-            var found = new List<TTPiece>(FindObjectsByType<TTPiece>(FindObjectsSortMode.None));
-            found.Sort((a, b) =>
-            {
-                int ai = a.SourceIndex < 0 ? int.MaxValue : a.SourceIndex;
-                int bi = b.SourceIndex < 0 ? int.MaxValue : b.SourceIndex;
-                return ai != bi ? ai.CompareTo(bi) : string.CompareOrdinal(a.name, b.name);
-            });
+            var found = new List<TTObject>(FindObjectsByType<TTObject>(FindObjectsSortMode.None));
+            found.Sort((a, b) => a.SourceIndex.CompareTo(b.SourceIndex));
             for (int i = 0; i < found.Count; i++)
             {
                 var c = found[i];
-                // The transform is the only place the rect lives now.
-                var rect = c.Footprint();
                 var o = new Obj
                 {
                     index = i,
                     type = c.Type,
-                    x = rect.x, y = rect.y, w = rect.width, h = rect.height,
-                    ax = rect.x, ay = rect.y, aw = rect.width, ah = rect.height,
+                    x = c.SourceX, y = c.SourceY, w = c.SourceW, h = c.SourceH,
+                    ax = c.SourceX, ay = c.SourceY, aw = c.SourceW, ah = c.SourceH,
                     value = c.Value,
-                    label = c.name,
+                    label = c.DisplayName,
                     comp = c,
-                    zFront = c.transform.position.z - Mathf.Abs(c.transform.lossyScale.z) * 0.5f,
-                    zBack = c.transform.position.z + Mathf.Abs(c.transform.lossyScale.z) * 0.5f,
                     tf = c.transform,
                     rend = c.GetComponentInChildren<Renderer>(),
                     facing = c.Facing,
@@ -248,9 +217,7 @@ namespace ThermalTail
                 return;
             }
 
-            TTCoord.Flat = Settings.LiesFlat;
-            // A floor plan is played with the climb controller: 8-way, no gravity.
-            ClimbMode = Settings.IsClimb || Settings.LiesFlat;
+            ClimbMode = Settings.IsClimb;
             LevelTime = 0f;
             BaseAmbient = TTMath.Clamp(Settings.Ambient, 0f, 100f);
 
@@ -274,7 +241,6 @@ namespace ThermalTail
             px = sx; py = sy;
             pw = Tuning.PlayerWidth; ph = Tuning.PlayerHeight;
             pvx = pvy = 0f;
-            pz = pvz = 0f;
             PFacing = 1;
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
@@ -446,8 +412,7 @@ namespace ThermalTail
             {
                 var o = Objects[i];
                 if (o.type == TTObjectType.Platform || o.type == TTObjectType.MovingPlatform)
-                    outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, time),
-                                            zFront = o.zFront, zBack = o.zBack });
+                    outList.Add(new Solid { index = i, type = o.type, rect = ObjectRect(o, time) });
             }
             if (outList.Count == 0 && !ClimbMode)
             {
@@ -455,8 +420,7 @@ namespace ThermalTail
                 {
                     index = -2,
                     type = TTObjectType.Platform,
-                    rect = new Rect(0f, Settings.Height * 0.78f, Settings.Width, Mathf.Max(80f, Settings.Height * 0.22f)),
-                    zFront = -99f, zBack = 99f          // the implicit ground slab spans all depth
+                    rect = new Rect(0f, Settings.Height * 0.78f, Settings.Width, Mathf.Max(80f, Settings.Height * 0.22f))
                 });
             }
             return outList;
@@ -522,17 +486,6 @@ namespace ThermalTail
                 }
             }
             return false;
-        }
-
-        /// <summary>
-        /// Whether the lizard is at the same depth as a box. Stepping behind a ledge is the
-        /// point of the depth axis, so anything it is not lined up with is not in its way.
-        /// Depth off, everything is lined up and the original collision is what runs.
-        /// </summary>
-        public bool LinedUp(float zFront, float zBack)
-        {
-            if (!DepthMovement) return true;
-            return pz + DepthHalfExtent > zFront && pz - DepthHalfExtent < zBack;
         }
 
         /// <summary>Port of gateOpen: within 6.5 degrees of the gate's target temperature.</summary>
@@ -726,23 +679,6 @@ namespace ThermalTail
                 py += now.y - before.y;
             }
 
-            // Depth. Held keys, same feel as running: accelerate toward the target, coast
-            // back to nothing when released, and never leave the band the level is built in.
-            if (DepthMovement)
-            {
-                int dz = (TTInput.Down ? 1 : 0) - (TTInput.Up ? 1 : 0);
-                float zMax = (PMatching ? Tuning.MaskedMaxSpeed : Tuning.MaxSpeed) * pace
-                             * DepthSpeedFactor / TTCoord.PixelsPerUnit;
-                float zAcc = (PGrounded ? Tuning.GroundAccel : Tuning.AirAccel) * pace
-                             * DepthSpeedFactor / TTCoord.PixelsPerUnit;
-                if (dz != 0) pvz = TTMath.MoveToward(pvz, dz * zMax, zAcc * dt);
-                else pvz = TTMath.MoveToward(pvz, 0f,
-                        (PGrounded ? Tuning.GroundFriction : Tuning.AirFriction) / TTCoord.PixelsPerUnit * dt);
-                pz = TTMath.Clamp(pz + pvz * dt, -DepthRange, DepthRange);
-                PTemp = TTMath.Clamp(PTemp + Mathf.Abs(pvz) * TTCoord.PixelsPerUnit
-                        / Tuning.MoveHeatDivisor * Tuning.MoveHeatScale * dt, 0f, 100f);
-            }
-
             int dir = (TTInput.Right ? 1 : 0) - (TTInput.Left ? 1 : 0);
             if (dir != 0) PFacing = dir;
             float maxSpeed = (PMatching ? Tuning.MaskedMaxSpeed : Tuning.MaxSpeed) * pace;
@@ -776,7 +712,6 @@ namespace ThermalTail
                 bool open = GateOpen(o);
                 GateStates[i] = open;
                 if (open) continue;
-                if (!LinedUp(o.zFront, o.zBack)) continue;
                 var r = ObjectRect(o, LevelTime);
                 var pr = PlayerRect(0f);
                 if (Intersects(pr, r))
@@ -810,11 +745,6 @@ namespace ThermalTail
                     var s = solids[i];
                     var r = s.rect;
                     // One-way: you only land if your bottom edge was above the top last frame.
-                    // Deliberately not depth-checked. What you stand on is whatever ledge you
-                    // are over, at any depth: the slabs are seven units deep and stepping to
-                    // the front of one would otherwise stop it being ground and drop you
-                    // through the level. Depth decides what is in your WAY, not what holds
-                    // you up.
                     if (oldBottom <= r.y + Tuning.LandingTopTolerance && newBottom >= r.y &&
                         px + pw * Tuning.LandingHalfWidthFactor > r.x &&
                         px - pw * Tuning.LandingHalfWidthFactor < r.x + r.width)
@@ -921,7 +851,6 @@ namespace ThermalTail
             }
             px = CheckpointX; py = CheckpointY;
             pvx = pvy = 0f;
-            pz = pvz = 0f;
             PAngle = -Mathf.PI * 0.5f;
             PGrounded = false;
             PGroundIndex = -1;

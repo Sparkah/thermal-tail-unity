@@ -30,11 +30,6 @@ namespace ThermalTail
         public int Quota = 3;
 
         [Header("Mode")]
-        [Tooltip("This level is a floor plan seen from above - a room - rather than a side " +
-                 "elevation. Implies climb-style 8-way movement. Presentation only; the " +
-                 "simulation is the same either way.")]
-        public bool LiesFlat;
-
         [Tooltip("True when the level carries a Climb Wall marker: top-down 8-way movement, no gravity.")]
         public bool IsClimb;
 

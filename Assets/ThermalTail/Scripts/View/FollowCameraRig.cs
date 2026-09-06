@@ -15,14 +15,6 @@ namespace ThermalTail
         public float SideFov = 42f;
         public float ClimbFov = 46f;
 
-        [Header("3D framing")]
-        [Tooltip("Swing the camera round the action so the boxes read as solids instead of " +
-                 "flat rectangles. Zero is the original head-on framing, pixel for pixel. " +
-                 "Raise it to taste - 8 to 14 shows the depth without changing what is in shot.")]
-        public float Yaw = 12f;
-        [Tooltip("Tilt down over the action. Zero is the original framing.")]
-        public float Pitch = 7f;
-
         Camera _cam;
         float _fx, _fy;
         bool _snapped;
@@ -74,18 +66,8 @@ namespace ThermalTail
             float cx = w <= halfW * 2f ? w * 0.5f : Mathf.Clamp(_fx, halfW, w - halfW);
             float cy = h <= halfH * 2f ? h * 0.5f : Mathf.Clamp(_fy, halfH, h - halfH);
 
-            // Orbit the same focus point rather than moving it, so exactly the same slice of
-            // level stays in shot - it is just no longer seen dead on.
-            float dist = climb ? ClimbDistance : SideDistance;
-            Vector3 focus = TTCoord.Point(cx, cy, 0f);
-
-            // On a floor plan the level lies in the ground, so the rig looks down into it and
-            // sits back along -Z; on an elevation it stays in front and only swings a little.
-            Quaternion swing = TTCoord.Flat
-                ? Quaternion.Euler(Mathf.Clamp(Pitch, 20f, 85f), Yaw, 0f)
-                : Quaternion.Euler(Pitch, -Yaw, 0f);
-            transform.position = focus - swing * Vector3.forward * dist;
-            transform.rotation = swing;
+            transform.position = TTCoord.Point(cx, cy, -(climb ? ClimbDistance : SideDistance));
+            transform.rotation = Quaternion.identity;
             if (_cam != null) _cam.fieldOfView = climb ? ClimbFov : SideFov;
         }
     }
