@@ -1,0 +1,6 @@
+{
+  "name": "ThermalTail.Prototype.Editor.Tests",
+  "references": ["ThermalTail.Prototype", "ThermalTail.Prototype.Editor"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ThermalTail.Prototype.Tests",
+  "references": ["ThermalTail.Prototype"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

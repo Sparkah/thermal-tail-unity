@@ -1,0 +1,6 @@
+{
+  "name": "ThermalTail.Prototype.Editor",
+  "rootNamespace": "ThermalTail.Prototype.Editor",
+  "references": ["ThermalTail.Prototype", "Unity.AI.Navigation"],
+  "includePlatforms": ["Editor"]
+}

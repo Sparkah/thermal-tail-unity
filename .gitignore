@@ -1,15 +1,80 @@
+# Unity caches and local state
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
-[Bb]uild/
-[Bb]uilds/
 [Ll]ogs/
 [Uu]serSettings/
+/[Uu]sersettings/
 MemoryCaptures/
+/memoryCaptures/
+/[Rr]ecordings/
+.utmp/
+*.log
+
+# Build outputs
+[Bb]uild/
+[Bb]uilds/
+*web build*/
+*.apk
+*.aab
+*.unitypackage
+*.unitypackage.meta
+*.app
+
+# Editor and IDE caches/settings
 .vs/
 .idea/
 .vscode/
+.consulo/
+.gradle/
+.editorconfig
+ExportedObj/
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# Generated solution/project files and user preferences
 *.csproj
-*.sln
+*.unityproj
+*.sln*
+*.suo
+*.tmp
 *.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Blender backup files
+*.blend1
+*.blend1.meta
+
+# Crash reports
+sysinfo.txt
+mono_crash.*
+crashlytics-build.properties
+
+# Generated test scenes (including alternate capitalization at the Assets root)
+InitTestScene*.unity*
+/[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
+
+# Addressables build artifacts
+/ServerData
+/[Aa]ssets/StreamingAssets/aa*
+/[Aa]ssets/AddressableAssetsData/link.xml*
+/[Aa]ssets/Addressables_Temp*
+/[Aa]ssets/AddressableAssetsData/*/*.bin*
+
+# Visual Scripting generated files
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db.meta
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers.meta
+
+# macOS
 .DS_Store
