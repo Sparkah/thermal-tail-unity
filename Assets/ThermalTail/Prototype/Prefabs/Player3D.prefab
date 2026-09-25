@@ -196,6 +196,8 @@ MonoBehaviour:
   Skin: 0.02
   AutomaticCorners: 1
   MaximumCornerAngle: 110
+  SkipNarrowSurfaces: 1
+  MaximumSkipDistance: 0.75
 --- !u!114 &1827774488455010675
 MonoBehaviour:
   m_ObjectHideFlags: 0

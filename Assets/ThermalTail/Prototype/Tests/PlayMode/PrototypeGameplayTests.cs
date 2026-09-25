@@ -70,6 +70,28 @@ namespace ThermalTail.Prototype.Tests
         }
 
         [UnityTest]
+        public IEnumerator SlightlyEmbeddedPlacementRecoversSupportAndCanMove()
+        {
+            player.Warp(new Vector3(0, .22f, 0), Quaternion.identity);
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            Assert.That(player.GetComponent<Rigidbody>().position.y, Is.EqualTo(.34f).Within(.005f));
+            player.MoveInput = Vector2.up;
+            yield return new WaitForSeconds(.3f);
+            Assert.That(player.GetComponent<Rigidbody>().position.z, Is.GreaterThan(.3f));
+        }
+
+        [UnityTest]
+        public IEnumerator EmbeddedSupportRecoveryDoesNotPassThroughAnOverheadObstacle()
+        {
+            Solid("Low ceiling", new Vector3(0, .66f, 0), new Vector3(2, .1f, 2), false);
+            player.Warp(new Vector3(0, .22f, 0), Quaternion.identity);
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            Assert.That(player.GetComponent<Rigidbody>().position.y, Is.EqualTo(.22f).Within(.005f));
+        }
+
+        [UnityTest]
         public IEnumerator CivilianWrongTemperatureBuildsQuicklyAndCallsSecurityWithoutCapturing()
         {
             var citizen = ObjectAt("Civilian", Vector3.zero);
@@ -240,6 +262,116 @@ namespace ThermalTail.Prototype.Tests
             Assert.That(thermal.IsSafe, Is.True);
             yield return new WaitForSeconds(0.3f);
             Assert.That(thermal.Temperature, Is.EqualTo(22).Within(0.05));
+        }
+
+        [UnityTest]
+        public IEnumerator NarrowLedgeSkipReachesNextWallWithoutBodyPenetration()
+        {
+            Solid("Lower ledge", new Vector3(0, 1, 3), new Vector3(4, 2, 2));
+            var wall = Solid("Next wall", new Vector3(0, 2.5f, 3.2f), new Vector3(4, 5, 2));
+            foreach (float width in new[] { .08f, .2f, .28f })
+            {
+                wall.transform.position = new Vector3(0, 2.5f, 3 + width);
+                player.Warp(new Vector3(0, 1.8f, 1.66f), Quaternion.LookRotation(Vector3.up, Vector3.back));
+                player.MoveInput = Vector2.up; Physics.SyncTransforms();
+                float deadline = Time.time + 1.4f;
+                while (Time.time < deadline)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Assert.That(Physics.CheckSphere(player.GetComponent<Rigidbody>().position, player.Radius - player.Skin,
+                        1 << WorldLayer, QueryTriggerInteraction.Ignore), Is.False, "Clearance at ledge width " + width);
+                }
+                Assert.That(player.transform.position.y, Is.GreaterThan(2.7f), "Ledge width " + width + " at " + player.transform.position);
+                Assert.That(Vector3.Dot(player.SurfaceNormal, Vector3.back), Is.GreaterThan(.99f));
+                Assert.That(Vector3.Dot(player.ViewForward, Vector3.up), Is.GreaterThan(.99f));
+                Assert.That(player.InTransition, Is.False);
+                player.Warp(new Vector3(0, 2.6f, 2 + width - .34f), Quaternion.LookRotation(Vector3.down, Vector3.back));
+                player.MoveInput = Vector2.up;
+                deadline = Time.time + 1.4f;
+                while (Time.time < deadline)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Assert.That(Physics.CheckSphere(player.GetComponent<Rigidbody>().position, player.Radius - player.Skin,
+                        1 << WorldLayer, QueryTriggerInteraction.Ignore), Is.False, "Reverse clearance at ledge width " + width);
+                }
+                Assert.That(player.transform.position.y, Is.LessThan(1.8f), "Reverse ledge width " + width + " at " + player.transform.position);
+                Assert.That(Vector3.Dot(player.SurfaceNormal, Vector3.back), Is.GreaterThan(.99f));
+                Assert.That(Vector3.Dot(player.ViewForward, Vector3.down), Is.GreaterThan(.99f));
+                Assert.That(player.InTransition, Is.False);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator NarrowSkipCanBeDisabledAndHonorsMaximumDistance()
+        {
+            Solid("Lower ledge", new Vector3(0, 1, 3), new Vector3(4, 2, 2));
+            Solid("Next wall", new Vector3(0, 2.5f, 3.2f), new Vector3(4, 5, 2));
+            for (int i = 0; i < 3; i++)
+            {
+                player.SkipNarrowSurfaces = i != 0;
+                player.MaximumSkipDistance = i == 1 ? .1f : .75f;
+                player.AutomaticCorners = i != 2;
+                player.Warp(new Vector3(0, 1.8f, 1.66f), Quaternion.LookRotation(Vector3.up, Vector3.back));
+                player.MoveInput = Vector2.up; Physics.SyncTransforms();
+                yield return new WaitForSeconds(.8f);
+                Assert.That(player.transform.position.y, Is.LessThan(2.1f));
+                Assert.That(player.InTransition, Is.False);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator NarrowSkipRejectsUnmarkedLandingGapsAndBlockedRoutes()
+        {
+            var ledge = Solid("Lower ledge", new Vector3(0, 1, 3), new Vector3(4, 2, 2));
+            var wall = Solid("Unmarked next wall", new Vector3(0, 2.5f, 3.2f), new Vector3(4, 5, 2), false);
+            for (int i = 0; i < 3; i++)
+            {
+                if (i == 1)
+                {
+                    wall.AddComponent<ClimbableSurface>();
+                    ledge.transform.position = new Vector3(0, 1, 2.02f);
+                    ledge.GetComponent<BoxCollider>().size = new Vector3(4, 2, .04f);
+                }
+                if (i == 2)
+                {
+                    ledge.transform.position = new Vector3(0, 1, 3);
+                    ledge.GetComponent<BoxCollider>().size = new Vector3(4, 2, 2);
+                    Solid("Body clearance blocker", new Vector3(0, 2.25f, 1.65f), new Vector3(1, .1f, .15f), false);
+                }
+                player.Warp(new Vector3(0, 1.7f, 1.66f), Quaternion.LookRotation(Vector3.up, Vector3.back));
+                player.MoveInput = Vector2.up; Physics.SyncTransforms();
+                yield return new WaitForSeconds(.8f);
+                Assert.That(player.transform.position.y, Is.LessThan(2.1f), "Rejected geometry case " + i);
+                Assert.That(player.InTransition, Is.False);
+                Assert.That(Physics.CheckSphere(player.GetComponent<Rigidbody>().position, player.Radius - player.Skin,
+                    1 << WorldLayer, QueryTriggerInteraction.Ignore), Is.False);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator NarrowCapSkipRoundsBothEdgesAndWarpCancelsIt()
+        {
+            Solid("Thin wall", new Vector3(0, 1, 2.015f), new Vector3(4, 2, .03f));
+            player.Warp(new Vector3(0, 1.95f, 1.66f), Quaternion.LookRotation(Vector3.up, Vector3.back));
+            player.MoveInput = Vector2.up; Physics.SyncTransforms();
+            float deadline = Time.time + 2;
+            while (Time.time < deadline && (Vector3.Dot(player.SurfaceNormal, Vector3.forward) < .99f || player.InTransition))
+            {
+                yield return new WaitForFixedUpdate();
+                Assert.That(Physics.CheckSphere(player.GetComponent<Rigidbody>().position, player.Radius - player.Skin,
+                    1 << WorldLayer, QueryTriggerInteraction.Ignore), Is.False);
+            }
+            Assert.That(player.SurfaceNormal.z, Is.GreaterThan(.99f));
+            Assert.That(player.InTransition, Is.False);
+            Assert.That(Vector3.Dot(player.ViewForward, Vector3.down), Is.GreaterThan(.99f));
+            player.Warp(new Vector3(0, 1.95f, 1.66f), Quaternion.LookRotation(Vector3.up, Vector3.back));
+            player.MoveInput = Vector2.up;
+            yield return new WaitForSeconds(.15f);
+            Assert.That(player.InTransition, Is.True);
+            player.Warp(new Vector3(-4, .34f, 0), Quaternion.identity);
+            yield return new WaitForFixedUpdate();
+            Assert.That(player.InTransition, Is.False);
+            Assert.That(player.SurfaceNormal, Is.EqualTo(Vector3.up));
         }
 
         [UnityTest]

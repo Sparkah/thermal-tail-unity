@@ -1,5 +1,21 @@
 # Validation
 
+Support-placement recovery, 2026-09-25: **40 core Play Mode checks passed**
+in the isolated Unity 6000.3.5f2 copy. A player starting at 0.22 above the floor
+now recovers to the 0.34 body clearance and can move. A low overhead obstacle
+still prevents that correction. All narrow-surface and existing gameplay checks
+passed, and all 10 scene files remained byte-for-byte unchanged. This fixes an
+initial-overlap sweep regression without changing authored player/spawn transforms.
+
+Narrow-surface traversal, 2026-09-25: **38 core Play Mode checks passed** in
+Unity 6000.3.5f2 using an isolated project copy. New coverage includes climbing
+past 0.08/0.20/0.28-unit ledges in both directions, rounding a 0.03-unit cap,
+per-step body clearance, skip distance and enable controls, unmarked landings,
+unsupported gaps, blocked routes, and checkpoint cancellation. Existing ordinary
+corner and gameplay checks also passed. All 10 existing scene files were verified
+byte-for-byte unchanged. The Player3D prefab enables the fallback with a 0.75-unit
+maximum; no scene generation or save was performed.
+
 First-section keys/door/patrol update, 2026-09-24: **3 targeted Play Mode checks
 and 1 prefab authoring check passed**. Verified eight unique, floor-supported,
 navigation-reachable key placements; actual trigger collection without duplicates;

@@ -13,6 +13,10 @@ namespace ThermalTail.Prototype
         [Min(0.01f)] public float Skin = 0.02f;
         public bool AutomaticCorners = true;
         [Range(10f, 135f)] public float MaximumCornerAngle = 110f;
+        [Tooltip("If the ordinary corner cannot fit, try crossing one short adjoining surface to the next clear face.")]
+        public bool SkipNarrowSurfaces = true;
+        [Min(0f), Tooltip("Maximum distance along the one skipped face. Requires connected climbable surfaces and body clearance throughout. Zero disables skipping.")]
+        public float MaximumSkipDistance = .75f;
         public Vector2 MoveInput { get; set; }
         public float Heading { get; set; }
         public Vector3 Velocity { get; private set; }
@@ -73,15 +77,20 @@ namespace ThermalTail.Prototype
             }
 
             // Flat support is ordinary movement; a departing edge can start a convex turn.
+            bool supported = false;
             if (Physics.Raycast(position + normal * 0.12f, -normal, out RaycastHit support,
                 Radius + 0.32f, SolidMask, QueryTriggerInteraction.Ignore) &&
                 support.collider.GetComponentInParent<ClimbableSurface>() != null &&
                 Vector3.Dot(support.normal, normal) > 0.99f)
             {
-                position = support.point + normal * (Radius + Skin);
-                SetNormal(normal);
+                Vector3 snapped = support.point + normal * (Radius + Skin);
+                Vector3 correction = snapped - position;
+                // A support ray can see past a thin lip; don't snap the body through it.
+                if (ClearBody(snapped) && (correction.sqrMagnitude < .000001f ||
+                    !Sweep(position, correction, out _, support.collider)))
+                { position = snapped; SetNormal(normal); supported = true; }
             }
-            else
+            if (!supported)
             {
                 if (AutomaticCorners && TryCorner(start, position)) { AdvanceCorner(); return; }
                 position = start;
@@ -93,7 +102,7 @@ namespace ThermalTail.Prototype
             body.MoveRotation(Quaternion.LookRotation(look.normalized, SurfaceNormal));
         }
 
-        bool Sweep(Vector3 position, Vector3 delta, out RaycastHit nearest)
+        bool Sweep(Vector3 position, Vector3 delta, out RaycastHit nearest, Collider supportToEscape = null)
         {
             nearest = default;
             float distance = float.PositiveInfinity;
@@ -102,6 +111,16 @@ namespace ThermalTail.Prototype
                 delta.magnitude + Skin, SolidMask, QueryTriggerInteraction.Ignore))
             {
                 if (hit.collider == bodyCollider || hit.distance >= distance) continue;
+                // An editor placement can start slightly inside its supporting floor.
+                // Unity reports initial overlap as a zero-distance hit opposing the cast.
+                // Permit only a complete outward correction from that support, never a
+                // sweep through a different obstacle or a normal movement/corner sweep.
+                if (hit.distance == 0f && hit.collider == supportToEscape &&
+                    Physics.ComputePenetration(bodyCollider, position, body.rotation,
+                        hit.collider, hit.collider.transform.position, hit.collider.transform.rotation,
+                        out Vector3 escape, out float penetration) &&
+                    Vector3.Dot(delta.normalized, escape) > .999f && delta.magnitude >= penetration)
+                    continue;
                 // Contacts tangent to movement must not stall surface sliding.
                 if (Vector3.Dot(delta.normalized, hit.normal) >= -0.001f) continue;
                 nearest = hit; distance = hit.distance;
@@ -120,6 +139,17 @@ namespace ThermalTail.Prototype
         {
             var path = SurfaceCornerPath.Find(start, attempted, SurfaceNormal, Radius, Skin,
                 MaximumCornerAngle, SolidMask, bodyCollider);
+            if (CanTraverse(path)) { corner = path; return true; }
+            if (!SkipNarrowSurfaces) return false;
+            path = SurfaceCornerPath.FindSkip(start, attempted, SurfaceNormal, Radius, Skin,
+                MaximumCornerAngle, MaximumSkipDistance, SolidMask, bodyCollider);
+            if (!CanTraverse(path)) return false;
+            corner = path;
+            return true;
+        }
+
+        bool CanTraverse(SurfaceCornerPath path)
+        {
             if (path == null) return false;
             // Validate every chord before committing, including clearance around the new face.
             for (int i = 1; i < path.Points.Length; i++)
@@ -128,7 +158,6 @@ namespace ThermalTail.Prototype
                 if (!ClearBody(path.Points[i]) || (delta.sqrMagnitude > 0.000001f &&
                     Sweep(path.Points[i - 1], delta, out _))) return false;
             }
-            corner = path;
             return true;
         }
 
