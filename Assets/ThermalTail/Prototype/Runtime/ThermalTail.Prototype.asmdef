@@ -1,0 +1,5 @@
+{
+  "name": "ThermalTail.Prototype",
+  "rootNamespace": "ThermalTail.Prototype",
+  "references": ["Unity.InputSystem"]
+}
