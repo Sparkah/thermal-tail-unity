@@ -27,7 +27,6 @@ MemoryCaptures/
 .vscode/
 .consulo/
 .gradle/
-.editorconfig
 ExportedObj/
 /[Aa]ssets/Plugins/Editor/JetBrains*
 
